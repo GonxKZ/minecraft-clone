@@ -31,12 +31,18 @@ namespace VoxelCraft {
     class Renderer;
     class World;
     class Player;
-    class UIManager;
+    class UIManagerSimple;
+    class AudioManager;
     class NetworkManager;
     class SaveManager;
     class Profiler;
     class MemoryManager;
     class ResourceManager;
+    class Renderer;
+    class InputManager;
+    class World;
+    class Player;
+    class Camera;
 
     /**
      * @enum ApplicationState
@@ -243,6 +249,37 @@ namespace VoxelCraft {
         bool InitializeNetworkSystem();
 
         /**
+         * @brief Handle keyboard events
+         * @param key Key code
+         * @param scancode Scan code
+         * @param action Action (press, release, repeat)
+         * @param mods Modifier keys
+         */
+        void HandleKeyEvent(int key, int scancode, int action, int mods);
+
+        /**
+         * @brief Handle mouse position events
+         * @param xpos X position
+         * @param ypos Y position
+         */
+        void HandleMousePosEvent(double xpos, double ypos);
+
+        /**
+         * @brief Handle mouse button events
+         * @param button Mouse button
+         * @param action Action (press, release)
+         * @param mods Modifier keys
+         */
+        void HandleMouseButtonEvent(int button, int action, int mods);
+
+        /**
+         * @brief Handle window resize events
+         * @param width New width
+         * @param height New height
+         */
+        void HandleResizeEvent(int width, int height);
+
+        /**
          * @brief Initialize UI system
          * @return true if successful
          */
@@ -321,12 +358,15 @@ namespace VoxelCraft {
         // Engine systems
         std::unique_ptr<Engine> m_engine;                     ///< Main engine instance
         std::unique_ptr<Window> m_window;                     ///< Main window
-        std::unique_ptr<Renderer> m_renderer;                 ///< Graphics renderer
+        std::shared_ptr<Renderer> m_renderer;                 ///< Graphics renderer
+        std::shared_ptr<InputManager> m_inputManager;         ///< Input handling
 
         // Game systems
         std::unique_ptr<World> m_world;                       ///< Game world
         std::unique_ptr<Player> m_player;                     ///< Player instance
-        std::unique_ptr<UIManager> m_uiManager;               ///< UI management system
+        std::shared_ptr<Camera> m_camera;                     ///< Camera instance
+        std::unique_ptr<UIManagerSimple> m_uiManager;               ///< UI management system
+        std::unique_ptr<AudioManager> m_audioManager;         ///< Audio management system
         std::unique_ptr<NetworkManager> m_networkManager;     ///< Network management system
         std::unique_ptr<SaveManager> m_saveManager;           ///< Save management system
 

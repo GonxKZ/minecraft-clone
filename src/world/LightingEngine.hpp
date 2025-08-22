@@ -1,571 +1,556 @@
 /**
  * @file LightingEngine.hpp
- * @brief VoxelCraft Advanced Lighting System
+ * @brief VoxelCraft Lighting System - Day/Night Cycle and Dynamic Lighting
  * @version 1.0.0
  * @author VoxelCraft Team
- *
- * This file defines the lighting engine that handles dynamic lighting,
- * shadows, ambient occlusion, and atmospheric effects for the voxel world.
  */
 
 #ifndef VOXELCRAFT_WORLD_LIGHTING_ENGINE_HPP
 #define VOXELCRAFT_WORLD_LIGHTING_ENGINE_HPP
 
-#include <memory>
 #include <vector>
+#include <memory>
 #include <unordered_map>
-#include <queue>
 #include <atomic>
 #include <mutex>
-#include <shared_mutex>
-#include <deque>
 
-#include "../core/Config.hpp"
-#include "World.hpp"
-#include "Chunk.hpp"
+#include "../blocks/Block.hpp"
 
 namespace VoxelCraft {
 
+    // Forward declarations
+    class World;
+    class Chunk;
+    struct Vec3;
+
     /**
      * @enum LightType
-     * @brief Type of light source
+     * @brief Types of light sources
      */
     enum class LightType {
-        Sky,                ///< Sky/sun light
-        Block,              ///< Block light (torches, etc.)
-        Entity,             ///< Entity light
-        Ambient,            ///< Ambient light
-        Dynamic             ///< Dynamic light source
+        SKY,           // Sun/moon light
+        BLOCK,         // Block light (torches, lava, etc.)
+        AMBIENT        // Ambient light level
     };
 
     /**
-     * @enum LightChannel
-     * @brief Lighting channels for different light types
+     * @enum TimeOfDay
+     * @brief Time periods in the day
      */
-    enum class LightChannel {
-        SkyLight,           ///< Sky light channel
-        BlockLight,         ///< Block light channel
-        Red,                ///< Red color channel
-        Green,              ///< Green color channel
-        Blue                ///< Blue color channel
+    enum class TimeOfDay {
+        DAWN,          // Sunrise (6:00)
+        DAY,           // Daytime (6:00 - 18:00)
+        DUSK,          // Sunset (18:00)
+        NIGHT,         // Nighttime (18:00 - 6:00)
+        MIDNIGHT       // Midnight (00:00)
     };
 
     /**
-     * @struct LightNode
-     * @brief Node in the lighting propagation graph
+     * @struct LightLevel
+     * @brief Light level information
      */
-    struct LightNode {
-        int x, y, z;                    ///< World coordinates
-        uint8_t lightLevel;             ///< Light level at this node
-        LightChannel channel;            ///< Light channel
-        uint32_t propagationStep;        ///< Propagation step counter
-        bool isDirty;                   ///< Node needs update
+    struct LightLevel {
+        uint8_t sky;           // Sky light level (0-15)
+        uint8_t block;         // Block light level (0-15)
+        uint8_t ambient;       // Ambient light level (0-15)
+
+        LightLevel()
+            : sky(15)
+            , block(0)
+            , ambient(0)
+        {}
+
+        LightLevel(uint8_t s, uint8_t b, uint8_t a = 0)
+            : sky(s)
+            , block(b)
+            , ambient(a)
+        {}
+
+        /**
+         * @brief Get combined light level
+         * @return Combined light level
+         */
+        uint8_t GetCombined() const {
+            return std::max({sky, block, ambient});
+        }
+
+        /**
+         * @brief Check if position is dark enough for mob spawning
+         * @return true if dark enough
+         */
+        bool IsDarkForMobs() const {
+            return GetCombined() <= 7;
+        }
+
+        /**
+         * @brief Check if plants can grow
+         * @return true if light level is sufficient
+         */
+        bool CanPlantsGrow() const {
+            return sky >= 9 || block >= 9;
+        }
     };
 
     /**
      * @struct LightSource
-     * @brief Represents a light source in the world
+     * @brief Information about a light source
      */
     struct LightSource {
-        int x, y, z;                    ///< World coordinates
-        uint8_t level;                  ///< Light level (0-15)
-        LightType type;                 ///< Light source type
-        LightChannel channel;            ///< Light channel
-        bool isDynamic;                 ///< Is dynamic light source
-        float radius;                   ///< Light radius
-        glm::vec3 color;                ///< Light color (RGB)
-        float intensity;                ///< Light intensity
-        uint32_t sourceId;              ///< Unique source ID
-        double lastUpdate;              ///< Last update timestamp
-        bool needsUpdate;               ///< Needs lighting update
+        Vec3 position;                // Position of light source
+        uint8_t level;               // Light level (0-15)
+        LightType type;              // Type of light source
+        BlockType blockType;         // Block type if block light
+        float radius;                // Light radius
+        bool isDynamic;              // Whether light can change
+        float flickerIntensity;      // Flicker intensity (0-1)
+
+        LightSource()
+            : level(15)
+            , type(LightType::SKY)
+            , blockType(BlockType::AIR)
+            , radius(15.0f)
+            , isDynamic(false)
+            , flickerIntensity(0.0f)
+        {}
+
+        LightSource(const Vec3& pos, uint8_t lvl, LightType t = LightType::BLOCK)
+            : position(pos)
+            , level(lvl)
+            , type(t)
+            , blockType(BlockType::AIR)
+            , radius(static_cast<float>(lvl))
+            , isDynamic(false)
+            , flickerIntensity(0.0f)
+        {}
     };
 
     /**
-     * @struct LightingConfig
-     * @brief Configuration for the lighting engine
+     * @struct SkyColor
+     * @brief Sky color information
      */
-    struct LightingConfig {
-        // Performance settings
-        int maxPropagationSteps;        ///< Maximum light propagation steps
-        int propagationBatchSize;       ///< Batch size for propagation
-        float updateInterval;           ///< Lighting update interval (seconds)
-        bool enableMultithreading;      ///< Enable multithreaded lighting
-        int workerThreads;              ///< Number of lighting worker threads
+    struct SkyColor {
+        float r, g, b, a;            // RGBA color components
 
-        // Quality settings
-        bool enableSmoothLighting;      ///< Enable smooth lighting
-        bool enableAmbientOcclusion;    ///< Enable ambient occlusion
-        bool enableColorBleeding;       ///< Enable color bleeding
-        bool enableShadows;             ///< Enable shadow mapping
-        float shadowQuality;            ///< Shadow quality (0.0 - 1.0)
+        SkyColor(float red = 1.0f, float green = 1.0f, float blue = 1.0f, float alpha = 1.0f)
+            : r(red), g(green), b(blue), a(alpha)
+        {}
 
-        // Sky light settings
-        float dayNightCycleSpeed;       ///< Day/night cycle speed multiplier
-        float minSkyLight;              ///< Minimum sky light level
-        float maxSkyLight;              ///< Maximum sky light level
-        glm::vec3 dawnColor;            ///< Dawn light color
-        glm::vec3 dayColor;             ///< Day light color
-        glm::vec3 duskColor;            ///< Dusk light color
-        glm::vec3 nightColor;           ///< Night light color
+        /**
+         * @brief Interpolate between two colors
+         * @param other Other color
+         * @param t Interpolation factor (0-1)
+         * @return Interpolated color
+         */
+        SkyColor Interpolate(const SkyColor& other, float t) const {
+            return SkyColor(
+                r + (other.r - r) * t,
+                g + (other.g - g) * t,
+                b + (other.b - b) * t,
+                a + (other.a - a) * t
+            );
+        }
 
-        // Block light settings
-        float blockLightFalloff;        ///< Block light falloff rate
-        float maxBlockLightRadius;      ///< Maximum block light radius
-        bool enableFlickeringLights;    ///< Enable flickering light effects
-
-        // Atmospheric settings
-        bool enableVolumetricLighting;  ///< Enable volumetric lighting
-        bool enableGodRays;             ///< Enable god rays
-        float fogDensity;               ///< Fog density
-        float atmosphericDensity;       ///< Atmospheric scattering density
+        /**
+         * @brief Convert to array
+         * @return Color as float array
+         */
+        std::array<float, 4> ToArray() const {
+            return {r, g, b, a};
+        }
     };
 
     /**
-     * @struct LightingMetrics
-     * @brief Performance metrics for the lighting system
+     * @struct WeatherCondition
+     * @brief Weather information
      */
-    struct LightingMetrics {
-        uint64_t totalLightUpdates;     ///< Total lighting updates performed
-        uint64_t lightSources;          ///< Number of active light sources
-        uint64_t propagationSteps;      ///< Total light propagation steps
-        double averageUpdateTime;       ///< Average update time (ms)
-        double maxUpdateTime;           ///< Maximum update time (ms)
-        uint64_t cacheHits;             ///< Lighting cache hits
-        uint64_t cacheMisses;           ///< Lighting cache misses
-        double cacheHitRate;            ///< Cache hit rate (0.0 - 1.0)
-        size_t memoryUsage;             ///< Memory usage (bytes)
-        uint32_t queuedUpdates;         ///< Updates in queue
-        uint32_t activeThreads;         ///< Active lighting threads
-    };
-
-    /**
-     * @class LightPropagationQueue
-     * @brief Queue for managing light propagation tasks
-     */
-    class LightPropagationQueue {
-    public:
-        /**
-         * @brief Add light node to propagation queue
-         * @param node Light node to add
-         * @param priority Priority level
-         */
-        void AddNode(const LightNode& node, int priority = 0);
-
-        /**
-         * @brief Get next node to process
-         * @return Next light node or empty optional
-         */
-        std::optional<LightNode> GetNextNode();
-
-        /**
-         * @brief Check if queue is empty
-         * @return true if empty, false otherwise
-         */
-        bool IsEmpty() const;
-
-        /**
-         * @brief Get queue size
-         * @return Number of nodes in queue
-         */
-        size_t Size() const;
-
-        /**
-         * @brief Clear the queue
-         */
-        void Clear();
-
-        /**
-         * @brief Remove duplicate nodes
-         */
-        void RemoveDuplicates();
-
-    private:
-        struct QueuedNode {
-            LightNode node;
-            int priority;
-            double timestamp;
+    struct WeatherCondition {
+        enum class Type {
+            CLEAR,
+            RAIN,
+            THUNDERSTORM,
+            SNOW
         };
 
-        struct NodeCompare {
-            bool operator()(const QueuedNode& a, const QueuedNode& b) const {
-                return a.priority < b.priority;
-            }
-        };
+        Type type;
+        float intensity;              // Weather intensity (0-1)
+        float temperatureEffect;      // Effect on temperature
+        SkyColor skyColor;            // Sky color modification
+        float visibility;             // Visibility multiplier (0-1)
 
-        std::priority_queue<QueuedNode, std::vector<QueuedNode>, NodeCompare> m_queue;
-        mutable std::mutex m_mutex;
+        WeatherCondition()
+            : type(Type::CLEAR)
+            , intensity(0.0f)
+            , temperatureEffect(0.0f)
+            , visibility(1.0f)
+        {}
     };
 
     /**
      * @class LightingEngine
-     * @brief Advanced lighting engine for voxel worlds
-     *
-     * The LightingEngine handles:
-     * - Sky light propagation and day/night cycle
-     * - Block light from torches and other sources
-     * - Dynamic light sources and shadows
-     * - Ambient occlusion and smooth lighting
-     * - Atmospheric effects and volumetric lighting
-     * - Efficient light propagation algorithms
-     * - Multi-threaded lighting calculations
-     *
-     * Features:
-     * - Real-time light propagation
-     * - Level of Detail for lighting
-     * - Caching system for performance
-     * - Support for colored lighting
-     * - Atmospheric scattering
-     * - Dynamic shadows
+     * @brief Handles all lighting calculations and day/night cycle
      */
     class LightingEngine {
     public:
         /**
          * @brief Constructor
-         * @param config Lighting configuration
          */
-        explicit LightingEngine(const LightingConfig& config);
-
-        /**
-         * @brief Destructor
-         */
-        ~LightingEngine();
-
-        /**
-         * @brief Deleted copy constructor
-         */
-        LightingEngine(const LightingEngine&) = delete;
-
-        /**
-         * @brief Deleted copy assignment operator
-         */
-        LightingEngine& operator=(const LightingEngine&) = delete;
-
-        // Engine lifecycle
-
-        /**
-         * @brief Initialize the lighting engine
-         * @return true if successful, false otherwise
-         */
-        bool Initialize();
-
-        /**
-         * @brief Shutdown the lighting engine
-         */
-        void Shutdown();
+        LightingEngine();
 
         /**
          * @brief Update lighting system
-         * @param deltaTime Time elapsed since last update
+         * @param deltaTime Time since last update
          */
-        void Update(double deltaTime);
-
-        // Light source management
-
-        /**
-         * @brief Add light source to the world
-         * @param source Light source to add
-         * @return Light source ID or empty optional on failure
-         */
-        std::optional<uint32_t> AddLightSource(const LightSource& source);
-
-        /**
-         * @brief Remove light source from the world
-         * @param sourceId Light source ID
-         * @return true if removed, false if not found
-         */
-        bool RemoveLightSource(uint32_t sourceId);
-
-        /**
-         * @brief Update existing light source
-         * @param sourceId Light source ID
-         * @param source Updated light source
-         * @return true if updated, false if not found
-         */
-        bool UpdateLightSource(uint32_t sourceId, const LightSource& source);
-
-        /**
-         * @brief Get light source by ID
-         * @param sourceId Light source ID
-         * @return Light source or empty optional if not found
-         */
-        std::optional<LightSource> GetLightSource(uint32_t sourceId) const;
-
-        /**
-         * @brief Get all active light sources
-         * @return Vector of light sources
-         */
-        std::vector<LightSource> GetActiveLightSources() const;
-
-        // Lighting queries
-
-        /**
-         * @brief Get sky light level at world coordinates
-         * @param x World X coordinate
-         * @param y World Y coordinate
-         * @param z World Z coordinate
-         * @return Sky light level (0-15)
-         */
-        uint8_t GetSkyLight(int x, int y, int z) const;
-
-        /**
-         * @brief Get block light level at world coordinates
-         * @param x World X coordinate
-         * @param y World Y coordinate
-         * @param z World Z coordinate
-         * @return Block light level (0-15)
-         */
-        uint8_t GetBlockLight(int x, int y, int z) const;
-
-        /**
-         * @brief Get combined light level at world coordinates
-         * @param x World X coordinate
-         * @param y World Y coordinate
-         * @param z World Z coordinate
-         * @return Combined light level (0-15)
-         */
-        uint8_t GetLightLevel(int x, int y, int z) const;
-
-        /**
-         * @brief Get light color at world coordinates
-         * @param x World X coordinate
-         * @param y World Y coordinate
-         * @param z World Z coordinate
-         * @return Light color (RGB)
-         */
-        glm::vec3 GetLightColor(int x, int y, int z) const;
-
-        /**
-         * @brief Check if position is in shadow
-         * @param x World X coordinate
-         * @param y World Y coordinate
-         * @param z World Z coordinate
-         * @return true if in shadow, false otherwise
-         */
-        bool IsInShadow(int x, int y, int z) const;
-
-        // Lighting updates
-
-        /**
-         * @brief Update lighting for area
-         * @param centerX Center X coordinate
-         * @param centerZ Center Z coordinate
-         * @param radius Update radius in chunks
-         * @param priority Update priority
-         */
-        void UpdateAreaLighting(int centerX, int centerZ, int radius, int priority = 0);
-
-        /**
-         * @brief Update lighting for chunk
-         * @param chunk Chunk to update
-         * @param priority Update priority
-         */
-        void UpdateChunkLighting(Chunk* chunk, int priority = 0);
-
-        /**
-         * @brief Update sky light for entire world
-         * @param timeOfDay Time of day (0.0 - 1.0)
-         */
-        void UpdateSkyLight(float timeOfDay);
-
-        /**
-         * @brief Recalculate all lighting
-         * @param priority Recalculation priority
-         */
-        void RecalculateAllLighting(int priority = 0);
-
-        // Day/night cycle
+        void Update(float deltaTime);
 
         /**
          * @brief Get current time of day
-         * @return Time of day (0.0 - 1.0, 0.0 = midnight, 0.5 = noon)
+         * @return Time of day
          */
-        float GetTimeOfDay() const { return m_timeOfDay; }
+        TimeOfDay GetTimeOfDay() const;
 
         /**
-         * @brief Set time of day
-         * @param time Time of day (0.0 - 1.0)
+         * @brief Get current game time
+         * @return Game time in ticks
          */
-        void SetTimeOfDay(float time);
+        int64_t GetGameTime() const { return m_gameTime; }
 
         /**
-         * @brief Advance time of day
-         * @param deltaTime Time to advance (seconds)
+         * @brief Set game time
+         * @param time New game time
          */
-        void AdvanceTime(float deltaTime);
+        void SetGameTime(int64_t time);
+
+        /**
+         * @brief Get day time (0-24000)
+         * @return Day time
+         */
+        int GetDayTime() const { return m_dayTime; }
+
+        /**
+         * @brief Set day time
+         * @param time New day time
+         */
+        void SetDayTime(int time);
 
         /**
          * @brief Get current sky light level
-         * @return Sky light level (0.0 - 1.0)
+         * @param y Y coordinate
+         * @return Sky light level (0-15)
          */
-        float GetSkyLightLevel() const;
+        uint8_t GetSkyLightLevel(int y) const;
 
         /**
-         * @brief Get current sun direction
-         * @return Sun direction vector
+         * @brief Get light level at position
+         * @param position World position
+         * @return Light level information
          */
-        glm::vec3 GetSunDirection() const;
+        LightLevel GetLightLevel(const Vec3& position) const;
 
         /**
-         * @brief Get current moon direction
-         * @return Moon direction vector
-         */
-        glm::vec3 GetMoonDirection() const;
-
-        // Atmospheric effects
-
-        /**
-         * @brief Get atmospheric scattering color
-         * @param direction View direction
-         * @return Scattering color
-         */
-        glm::vec3 GetAtmosphericScattering(const glm::vec3& direction) const;
-
-        /**
-         * @brief Get fog color at position
-         * @param x World X coordinate
+         * @brief Get light level in chunk
+         * @param chunk Chunk to query
+         * @param localX Local X coordinate (0-15)
          * @param y World Y coordinate
-         * @param z World Z coordinate
-         * @return Fog color
+         * @param localZ Local Z coordinate (0-15)
+         * @return Light level information
          */
-        glm::vec3 GetFogColor(int x, int y, int z) const;
+        LightLevel GetLightLevel(const Chunk* chunk, int localX, int y, int localZ) const;
 
         /**
-         * @brief Get fog density at position
-         * @param x World X coordinate
-         * @param y World Y coordinate
-         * @param z World Z coordinate
-         * @return Fog density
+         * @brief Set block light level
+         * @param position World position
+         * @param level Light level (0-15)
          */
-        float GetFogDensity(int x, int y, int z) const;
-
-        // Configuration
+        void SetBlockLightLevel(const Vec3& position, uint8_t level);
 
         /**
-         * @brief Get lighting configuration
-         * @return Current configuration
+         * @brief Add light source
+         * @param lightSource Light source to add
          */
-        const LightingConfig& GetConfig() const { return m_config; }
+        void AddLightSource(const LightSource& lightSource);
 
         /**
-         * @brief Set lighting configuration
-         * @param config New configuration
+         * @brief Remove light source
+         * @param position Position of light source
          */
-        void SetConfig(const LightingConfig& config);
+        void RemoveLightSource(const Vec3& position);
 
         /**
-         * @brief Get lighting metrics
-         * @return Performance metrics
+         * @brief Get sky color for current time
+         * @return Current sky color
          */
-        const LightingMetrics& GetMetrics() const { return m_metrics; }
+        SkyColor GetSkyColor() const;
 
         /**
-         * @brief Reset metrics
+         * @brief Get fog color for current time
+         * @return Current fog color
          */
-        void ResetMetrics();
+        SkyColor GetFogColor() const;
+
+        /**
+         * @brief Get current weather condition
+         * @return Weather condition
+         */
+        const WeatherCondition& GetWeather() const { return m_weather; }
+
+        /**
+         * @brief Set weather condition
+         * @param weather New weather condition
+         */
+        void SetWeather(const WeatherCondition& weather);
+
+        /**
+         * @brief Check if it's raining
+         * @return true if raining
+         */
+        bool IsRaining() const { return m_weather.type == WeatherCondition::Type::RAIN; }
+
+        /**
+         * @brief Check if there's a thunderstorm
+         * @return true if thunderstorm
+         */
+        bool IsThunderstorm() const { return m_weather.type == WeatherCondition::Type::THUNDERSTORM; }
+
+        /**
+         * @brief Check if it's snowing
+         * @return true if snowing
+         */
+        bool IsSnowing() const { return m_weather.type == WeatherCondition::Type::SNOW; }
+
+        /**
+         * @brief Get moon phase
+         * @return Moon phase (0-7)
+         */
+        int GetMoonPhase() const;
+
+        /**
+         * @brief Calculate light propagation
+         * @param chunk Chunk to update
+         */
+        void CalculateLightPropagation(Chunk* chunk);
+
+        /**
+         * @brief Update sky light for chunk
+         * @param chunk Chunk to update
+         */
+        void UpdateSkyLight(Chunk* chunk);
+
+        /**
+         * @brief Update block light for chunk
+         * @param chunk Chunk to update
+         */
+        void UpdateBlockLight(Chunk* chunk);
+
+        /**
+         * @brief Check if position can see sky
+         * @param position World position
+         * @return true if can see sky
+         */
+        bool CanSeeSky(const Vec3& position) const;
+
+        /**
+         * @brief Get brightness multiplier for current time
+         * @return Brightness multiplier (0-1)
+         */
+        float GetBrightness() const;
+
+        /**
+         * @brief Set time speed multiplier
+         * @param multiplier Speed multiplier
+         */
+        void SetTimeSpeed(float multiplier) { m_timeSpeed = multiplier; }
+
+        /**
+         * @brief Get time speed multiplier
+         * @return Speed multiplier
+         */
+        float GetTimeSpeed() const { return m_timeSpeed; }
+
+        /**
+         * @brief Convert game time to hours
+         * @param gameTime Game time
+         * @return Hours (0-24)
+         */
+        static float GameTimeToHours(int gameTime);
+
+        /**
+         * @brief Convert hours to game time
+         * @param hours Hours (0-24)
+         * @return Game time
+         */
+        static int HoursToGameTime(float hours);
 
     private:
-        /**
-         * @brief Initialize lighting data structures
-         */
-        void InitializeLightingData();
+        // Time system
+        int64_t m_gameTime;                    // Total game time in ticks
+        int m_dayTime;                        // Time of day (0-24000)
+        float m_timeSpeed;                    // Time speed multiplier
+
+        // Lighting data
+        std::unordered_map<Vec3, LightSource, std::hash<Vec3>> m_lightSources;
+        mutable std::mutex m_lightSourcesMutex;
+
+        // Weather system
+        WeatherCondition m_weather;
+        float m_weatherTimer;                 // Timer for weather changes
+        float m_weatherDuration;              // Duration of current weather
+
+        // Sky colors for different times
+        std::unordered_map<TimeOfDay, SkyColor> m_skyColors;
+        std::unordered_map<TimeOfDay, SkyColor> m_fogColors;
+
+        // Cached values
+        mutable TimeOfDay m_cachedTimeOfDay;
+        mutable SkyColor m_cachedSkyColor;
+        mutable SkyColor m_cachedFogColor;
 
         /**
-         * @brief Initialize worker threads
-         * @return true if successful, false otherwise
+         * @brief Update game time
+         * @param deltaTime Time since last update
          */
-        bool InitializeWorkerThreads();
+        void UpdateGameTime(float deltaTime);
 
         /**
-         * @brief Worker thread function for lighting calculations
-         * @param threadId Worker thread ID
+         * @brief Update weather system
+         * @param deltaTime Time since last update
          */
-        void LightingWorkerThread(int threadId);
+        void UpdateWeather(float deltaTime);
 
         /**
-         * @brief Process light propagation
-         * @param startNode Starting light node
-         * @param channel Light channel to propagate
+         * @brief Update cached values
          */
-        void PropagateLight(const LightNode& startNode, LightChannel channel);
+        void UpdateCachedValues();
 
         /**
-         * @brief Calculate ambient occlusion at position
-         * @param x World X coordinate
-         * @param y World Y coordinate
-         * @param z World Z coordinate
-         * @return Ambient occlusion factor (0.0 - 1.0)
+         * @brief Calculate sky light level for Y coordinate
+         * @param y Y coordinate
+         * @return Sky light level (0-15)
          */
-        float CalculateAmbientOcclusion(int x, int y, int z) const;
+        uint8_t CalculateSkyLightLevel(int y) const;
 
         /**
-         * @brief Calculate smooth lighting at position
-         * @param x World X coordinate
-         * @param y World Y coordinate
-         * @param z World Z coordinate
-         * @return Smooth lighting value
+         * @brief Get light level from block
+         * @param blockType Block type
+         * @return Light level (0-15)
          */
-        float CalculateSmoothLighting(int x, int y, int z) const;
+        uint8_t GetBlockLightLevel(BlockType blockType) const;
 
         /**
-         * @brief Update light source positions
+         * @brief Propagate light from position
+         * @param position Starting position
+         * @param level Light level
+         * @param type Light type
          */
-        void UpdateLightSources();
+        void PropagateLight(const Vec3& position, uint8_t level, LightType type);
 
         /**
-         * @brief Process pending lighting updates
+         * @brief Initialize sky colors
          */
-        void ProcessLightingUpdates();
+        void InitializeSkyColors();
 
         /**
-         * @brief Update lighting metrics
-         * @param deltaTime Time elapsed
+         * @brief Initialize fog colors
          */
-        void UpdateMetrics(double deltaTime);
+        void InitializeFogColors();
 
         /**
-         * @brief Get or create light source ID
-         * @param source Light source
-         * @return Light source ID
+         * @brief Get interpolated sky color
+         * @param time Time of day
+         * @param factor Interpolation factor (0-1)
+         * @return Interpolated color
          */
-        uint32_t GetOrCreateLightSourceId(const LightSource& source);
+        SkyColor GetInterpolatedSkyColor(TimeOfDay time, float factor) const;
 
-        // Configuration and state
-        LightingConfig m_config;                      ///< Lighting configuration
-        LightingMetrics m_metrics;                    ///< Performance metrics
+        /**
+         * @brief Get interpolated fog color
+         * @param time Time of day
+         * @param factor Interpolation factor (0-1)
+         * @return Interpolated color
+         */
+        SkyColor GetInterpolatedFogColor(TimeOfDay time, float factor) const;
+    };
 
-        // World reference
-        World* m_world;                               ///< Parent world
+    /**
+     * @class DayNightCycle
+     * @brief Manages the day/night cycle and transitions
+     */
+    class DayNightCycle {
+    public:
+        /**
+         * @brief Constructor
+         * @param lightingEngine Lighting engine reference
+         */
+        DayNightCycle(LightingEngine* lightingEngine);
 
-        // Light sources
-        std::unordered_map<uint32_t, LightSource> m_lightSources; ///< Active light sources
-        mutable std::shared_mutex m_lightSourceMutex; ///< Light source synchronization
-        std::atomic<uint32_t> m_nextLightSourceId;   ///< Next light source ID
+        /**
+         * @brief Update day/night cycle
+         * @param deltaTime Time since last update
+         */
+        void Update(float deltaTime);
 
-        // Lighting propagation
-        LightPropagationQueue m_propagationQueue;    ///< Light propagation queue
-        std::vector<std::thread> m_workerThreads;   ///< Worker threads
-        std::atomic<bool> m_workersRunning;          ///< Worker threads running flag
-        std::condition_variable_any m_workerCondition; ///< Worker condition variable
+        /**
+         * @brief Get current phase progress
+         * @return Progress (0-1) within current phase
+         */
+        float GetPhaseProgress() const { return m_phaseProgress; }
 
-        // Day/night cycle
-        float m_timeOfDay;                           ///< Current time of day (0.0 - 1.0)
-        float m_cycleSpeed;                          ///< Day/night cycle speed
-        glm::vec3 m_currentSkyColor;                 ///< Current sky color
-        float m_currentSkyLight;                     ///< Current sky light level
+        /**
+         * @brief Get current phase duration
+         * @return Phase duration in seconds
+         */
+        float GetPhaseDuration() const;
 
-        // Caching system
-        std::unordered_map<uint64_t, uint8_t> m_lightCache; ///< Lighting cache
-        mutable std::shared_mutex m_cacheMutex;     ///< Cache synchronization
-        size_t m_maxCacheSize;                      ///< Maximum cache size
+        /**
+         * @brief Check if it's currently transitioning
+         * @return true if transitioning
+         */
+        bool IsTransitioning() const { return m_isTransitioning; }
 
-        // Pending updates
-        std::deque<std::function<void()>> m_pendingUpdates; ///< Pending lighting updates
-        mutable std::mutex m_updateMutex;           ///< Update synchronization
+        /**
+         * @brief Force time of day
+         * @param timeOfDay Time of day to set
+         */
+        void ForceTimeOfDay(TimeOfDay timeOfDay);
 
-        // Statistics
-        double m_lastUpdateTime;                    ///< Last update timestamp
-        uint64_t m_totalPropagationSteps;           ///< Total propagation steps
-        uint32_t m_activeUpdates;                   ///< Active lighting updates
+        /**
+         * @brief Add time change listener
+         * @param listener Function called when time changes
+         */
+        void AddTimeChangeListener(std::function<void(TimeOfDay oldTime, TimeOfDay newTime)> listener);
+
+        /**
+         * @brief Remove all time change listeners
+         */
+        void ClearTimeChangeListeners();
+
+    private:
+        LightingEngine* m_lightingEngine;
+        TimeOfDay m_currentTimeOfDay;
+        float m_phaseProgress;
+        bool m_isTransitioning;
+        float m_transitionTimer;
+
+        std::vector<std::function<void(TimeOfDay oldTime, TimeOfDay newTime)>> m_timeChangeListeners;
+
+        /**
+         * @brief Update current time of day
+         */
+        void UpdateCurrentTimeOfDay();
+
+        /**
+         * @brief Handle time transition
+         * @param oldTime Previous time of day
+         * @param newTime New time of day
+         */
+        void HandleTimeTransition(TimeOfDay oldTime, TimeOfDay newTime);
+
+        /**
+         * @brief Get transition duration between times
+         * @param fromTime Starting time
+         * @param toTime Ending time
+         * @return Transition duration in seconds
+         */
+        float GetTransitionDuration(TimeOfDay fromTime, TimeOfDay toTime) const;
     };
 
 } // namespace VoxelCraft

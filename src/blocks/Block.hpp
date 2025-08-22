@@ -1,729 +1,308 @@
 /**
  * @file Block.hpp
- * @brief VoxelCraft Block System Core
+ * @brief VoxelCraft Block System - Core Block Definition
  * @version 1.0.0
  * @author VoxelCraft Team
  *
- * This file defines the Block class and block system architecture that forms
- * the foundation of the voxel-based world in VoxelCraft.
+ * Block system inspired by Minecraft with voxel-based world building
  */
 
 #ifndef VOXELCRAFT_BLOCKS_BLOCK_HPP
 #define VOXELCRAFT_BLOCKS_BLOCK_HPP
 
 #include <string>
-#include <vector>
 #include <unordered_map>
 #include <memory>
+#include <vector>
+#include <array>
 #include <functional>
-#include <optional>
-#include <any>
-
-#include "../core/Config.hpp"
 
 namespace VoxelCraft {
 
     // Forward declarations
-    class World;
-    class Entity;
-    class Player;
-    struct BlockCoordinate;
-    struct BlockProperties;
-    struct BlockBehavior;
-    class BlockMeshGenerator;
+    class BlockState;
+    class BlockBehavior;
+    struct Vec3;
 
     /**
-     * @typedef BlockID
-     * @brief Unique identifier for block types
+     * @enum BlockType
+     * @brief All block types in VoxelCraft (Minecraft-like)
      */
-    using BlockID = uint32_t;
+    enum class BlockType {
+        // Basic blocks
+        AIR = 0,
+        STONE,
+        GRASS_BLOCK,
+        DIRT,
+        COBBLESTONE,
+        WOOD_PLANKS,
+        SAPLING,
+        BEDROCK,
 
-    /**
-     * @typedef BlockMetadata
-     * @brief Block metadata value
-     */
-    using BlockMetadata = uint8_t;
+        // Ores and minerals
+        COAL_ORE,
+        IRON_ORE,
+        GOLD_ORE,
+        DIAMOND_ORE,
+        REDSTONE_ORE,
+        LAPIS_ORE,
+        EMERALD_ORE,
+
+        // Wood and nature
+        OAK_LOG,
+        OAK_LEAVES,
+        SPONGE,
+        GLASS,
+        OAK_STAIRS,
+        COBBLESTONE_STAIRS,
+
+        // Building blocks
+        BRICKS,
+        TNT,
+        BOOKSHELF,
+        MOSSY_COBBLESTONE,
+        OBSIDIAN,
+        SPAWNER,
+        DIAMOND_BLOCK,
+        GOLD_BLOCK,
+        IRON_BLOCK,
+
+        // Redstone components
+        REDSTONE_WIRE,
+        REDSTONE_TORCH,
+        REDSTONE_LAMP,
+        LEVER,
+        STONE_BUTTON,
+        WOODEN_BUTTON,
+        STONE_PRESSURE_PLATE,
+        WOODEN_PRESSURE_PLATE,
+        TRIPWIRE_HOOK,
+
+        // Mechanisms
+        DISPENSER,
+        NOTE_BLOCK,
+        STICKY_PISTON,
+        PISTON,
+        TNT,
+        LEVER,
+        STONE_BUTTON,
+
+        // Plants and crops
+        WHEAT,
+        CARROTS,
+        POTATOES,
+        BEETROOT,
+        MELON_STEM,
+        PUMPKIN_STEM,
+        MELON,
+        PUMPKIN,
+
+        // Liquids
+        WATER,
+        LAVA,
+
+        // Total block types
+        BLOCK_TYPE_COUNT
+    };
 
     /**
      * @enum BlockFace
-     * @brief Block face directions
+     * @brief Six faces of a block (like Minecraft)
      */
     enum class BlockFace {
-        Front,      ///< Positive X
-        Back,       ///< Negative X
-        Right,      ///< Positive Z
-        Left,       ///< Negative Z
-        Top,        ///< Positive Y
-        Bottom      ///< Negative Y
+        BOTTOM = 0,  // -Y
+        TOP,         // +Y
+        NORTH,       // -Z
+        SOUTH,       // +Z
+        WEST,        // -X
+        EAST         // +X
     };
 
     /**
-     * @enum BlockRenderType
-     * @brief Block rendering modes
+     * @enum BlockHardness
+     * @brief Mining hardness values (Minecraft-like)
      */
-    enum class BlockRenderType {
-        Solid,              ///< Standard solid block
-        Transparent,        ///< Transparent block
-        Translucent,        ///< Translucent block
-        Invisible,          ///< Invisible block
-        Liquid,             ///< Liquid block
-        Cross,              ///< Cross/plant rendering
-        Torch,              ///< Torch rendering
-        Fence,              ///< Fence rendering
-        Stairs,             ///< Stairs rendering
-        Slab,               ///< Slab rendering
-        Custom              ///< Custom rendering
+    enum class BlockHardness {
+        INSTANT = 0,     // Air, plants
+        VERY_SOFT = 1,   // Dirt, grass
+        SOFT = 2,        // Wood, sand
+        MEDIUM = 3,      // Stone, iron
+        HARD = 4,        // Obsidian, diamond
+        VERY_HARD = 5,   // Bedrock
+        UNBREAKABLE = 6  // Admin blocks
     };
 
     /**
-     * @enum BlockSoundType
-     * @brief Block sound categories
+     * @struct BlockProperties
+     * @brief Physical and behavioral properties of a block
      */
-    enum class BlockSoundType {
-        Stone,      ///< Stone sound
-        Wood,       ///< Wood sound
-        Gravel,     ///< Gravel sound
-        Grass,      ///< Grass sound
-        Metal,      ///< Metal sound
-        Glass,      ///< Glass sound
-        Cloth,      ///< Cloth sound
-        Sand,       ///< Sand sound
-        Snow,       ///< Snow sound
-        Ladder,     ///< Ladder sound
-        Anvil,      ///< Anvil sound
-        Slime,      ///< Slime sound
-        WetGrass,   ///< Wet grass sound
-        Coral,      ///< Coral sound
-        Bamboo,     ///< Bamboo sound
-        BambooSapling, ///< Bamboo sapling sound
-        Custom      ///< Custom sound
-    };
+    struct BlockProperties {
+        std::string name;                    ///< Display name
+        std::string textureName;             ///< Base texture name
+        BlockHardness hardness;              ///< Mining difficulty
+        float resistance;                    ///< Explosion resistance
+        float lightLevel;                    ///< Light emitted (0-15)
+        float lightOpacity;                  ///< Light blocked (0-15)
+        bool isSolid;                        ///< Blocks movement
+        bool isTransparent;                  ///< Allows light through
+        bool isFlammable;                    ///< Can catch fire
+        bool requiresTool;                   ///< Needs specific tool to mine
+        std::string requiredTool;            ///< Tool needed to mine efficiently
+        int harvestLevel;                    ///< Tool level required
+        bool canHarvest;                     ///< Can be harvested
+        int maxStackSize;                    ///< Maximum stack size in inventory
+        bool hasGravity;                     ///< Falls when unsupported
+        float slipperiness;                  ///< Slipperiness factor
+        std::vector<BlockType> dropItems;    ///< Items dropped when broken
+        std::vector<int> dropQuantities;     ///< Drop quantities
 
-    /**
-     * @enum BlockMaterial
-     * @brief Block material properties
-     */
-    enum class BlockMaterial {
-        Air,        ///< Air material
-        Solid,      ///< Solid material
-        Liquid,     ///< Liquid material
-        Plant,      ///< Plant material
-        Replaceable, ///< Replaceable material
-        Fire,       ///< Fire material
-        Web,        ///< Web material
-        Lava,       ///< Lava material
-        Ice,        ///< Ice material
-        Leaves,     ///< Leaves material
-        Glass,      ///< Glass material
-        Barrier,    ///< Barrier material
-        Custom      ///< Custom material
-    };
-
-    /**
-     * @struct BlockTextureCoords
-     * @brief Texture coordinates for block faces
-     */
-    struct BlockTextureCoords {
-        float u1, v1, u2, v2;    ///< UV coordinates (0.0 - 1.0)
-
-        BlockTextureCoords(float u1 = 0.0f, float v1 = 0.0f,
-                          float u2 = 1.0f, float v2 = 1.0f)
-            : u1(u1), v1(v1), u2(u2), v2(v2) {}
-    };
-
-    /**
-     * @struct BlockTextures
-     * @brief Texture information for all block faces
-     */
-    struct BlockTextures {
-        std::string textureName;                     ///< Base texture name
-        std::unordered_map<BlockFace, BlockTextureCoords> faceTextures; ///< Face-specific textures
-        BlockTextureCoords allFaces;                 ///< Default texture for all faces
-        bool hasDifferentFaces;                      ///< Uses different textures per face
-        bool animated;                              ///< Texture is animated
-        int animationFrames;                        ///< Number of animation frames
-        float animationSpeed;                       ///< Animation speed
-
-        BlockTextures(const std::string& name = "")
-            : textureName(name), allFaces(0.0f, 0.0f, 1.0f, 1.0f),
-              hasDifferentFaces(false), animated(false),
-              animationFrames(1), animationSpeed(1.0f) {}
-    };
-
-    /**
-     * @struct BlockPhysics
-     * @brief Physics properties of a block
-     */
-    struct BlockPhysics {
-        float hardness;              ///< Block hardness (mining time)
-        float resistance;            ///< Explosion resistance
-        float friction;              ///< Movement friction
-        float slipperiness;          ///< Slipperiness factor
-        float velocityMultiplier;    ///< Velocity multiplier
-        float jumpVelocity;          ///< Jump velocity multiplier
-        bool isSolid;               ///< Is solid for collision
-        bool isOpaque;              ///< Is opaque for lighting
-        bool isFullBlock;           ///< Is full 1x1x1 block
-        bool hasGravity;            ///< Affected by gravity
-        bool canFall;               ///< Can fall if unsupported
-        bool isLiquid;              ///< Is liquid block
-        bool isFlammable;           ///< Can catch fire
-        int flammability;           ///< Flammability level
-        int fireSpreadSpeed;        ///< Fire spread speed
-        bool needsRandomTick;       ///< Needs random ticks
-        bool needsScheduledTick;    ///< Needs scheduled ticks
-    };
-
-    /**
-     * @struct BlockBounds
-     * @brief Collision and selection bounds
-     */
-    struct BlockBounds {
-        float minX, minY, minZ;    ///< Minimum bounds
-        float maxX, maxY, maxZ;    ///< Maximum bounds
-
-        BlockBounds(float minX = 0.0f, float minY = 0.0f, float minZ = 0.0f,
-                   float maxX = 1.0f, float maxY = 1.0f, float maxZ = 1.0f)
-            : minX(minX), minY(minY), minZ(minZ),
-              maxX(maxX), maxY(maxY), maxZ(maxZ) {}
-
-        /**
-         * @brief Check if bounds are full block
-         * @return true if full block bounds
-         */
-        bool IsFullBlock() const {
-            return minX == 0.0f && minY == 0.0f && minZ == 0.0f &&
-                   maxX == 1.0f && maxY == 1.0f && maxZ == 1.0f;
-        }
-
-        /**
-         * @brief Check if point is inside bounds
-         * @param x X coordinate
-         * @param y Y coordinate
-         * @param z Z coordinate
-         * @return true if inside bounds
-         */
-        bool Contains(float x, float y, float z) const {
-            return x >= minX && x <= maxX &&
-                   y >= minY && y <= maxY &&
-                   z >= minZ && z <= maxZ;
-        }
-    };
-
-    /**
-     * @struct BlockDrop
-     * @brief Item drop information for blocks
-     */
-    struct BlockDrop {
-        BlockID itemId;             ///< Item ID to drop
-        BlockMetadata metadata;     ///< Item metadata
-        int minCount;              ///< Minimum drop count
-        int maxCount;              ///< Maximum drop count
-        float fortuneMultiplier;   ///< Fortune enchantment multiplier
-        bool requiresTool;         ///< Requires specific tool to drop
-        std::string requiredTool;  ///< Required tool type
-        int requiredToolLevel;     ///< Required tool level
-
-        BlockDrop(BlockID itemId = 0, BlockMetadata metadata = 0,
-                 int minCount = 1, int maxCount = 1, float fortuneMultiplier = 1.0f)
-            : itemId(itemId), metadata(metadata), minCount(minCount), maxCount(maxCount),
-              fortuneMultiplier(fortuneMultiplier), requiresTool(false), requiredToolLevel(0) {}
-    };
-
-    /**
-     * @struct BlockState
-     * @brief Dynamic block state information
-     */
-    struct BlockState {
-        BlockID blockId;           ///< Block ID
-        BlockMetadata metadata;    ///< Block metadata
-        double placementTime;      ///< When block was placed
-        std::string placer;        ///< Who placed the block
-        int lightLevel;            ///< Block light level
-        int skyLightLevel;         ///< Sky light level
-        bool isNatural;           ///< Naturally generated
-        std::unordered_map<std::string, std::any> properties; ///< Custom properties
+        BlockProperties()
+            : name("Unknown Block")
+            , textureName("unknown")
+            , hardness(BlockHardness::MEDIUM)
+            , resistance(1.0f)
+            , lightLevel(0.0f)
+            , lightOpacity(15.0f)
+            , isSolid(true)
+            , isTransparent(false)
+            , isFlammable(false)
+            , requiresTool(false)
+            , requiredTool("none")
+            , harvestLevel(0)
+            , canHarvest(true)
+            , maxStackSize(64)
+            , hasGravity(false)
+            , slipperiness(0.6f)
+        {}
     };
 
     /**
      * @class Block
-     * @brief Represents a block type in the voxel world
-     *
-     * A Block defines the properties, behavior, and appearance of a specific
-     * type of block in the world. Each block type has its own characteristics
-     * including textures, physics properties, sound effects, and behaviors.
-     *
-     * Key Features:
-     * - Unique identification with ID and metadata
-     * - Configurable textures for each face
-     * - Physics properties (hardness, resistance, etc.)
-     * - Custom collision bounds
-     * - Drop tables and loot
-     * - Interactive behaviors
-     * - Sound effects and particles
-     * - Animation support
+     * @brief Represents a single block type in the voxel world
      */
     class Block {
     public:
         /**
          * @brief Constructor
-         * @param id Block ID
-         * @param name Block name
+         * @param type Block type
+         * @param properties Block properties
          */
-        Block(BlockID id, const std::string& name);
+        Block(BlockType type, const BlockProperties& properties);
 
         /**
-         * @brief Destructor
+         * @brief Get block type
+         * @return Block type
          */
-        virtual ~Block();
+        BlockType GetType() const { return m_type; }
 
         /**
-         * @brief Deleted copy constructor
+         * @brief Get block properties
+         * @return Block properties
          */
-        Block(const Block&) = delete;
-
-        /**
-         * @brief Deleted copy assignment operator
-         */
-        Block& operator=(const Block&) = delete;
-
-        // Block identification
-
-        /**
-         * @brief Get block ID
-         * @return Block ID
-         */
-        BlockID GetID() const { return m_id; }
+        const BlockProperties& GetProperties() const { return m_properties; }
 
         /**
          * @brief Get block name
          * @return Block name
          */
-        const std::string& GetName() const { return m_name; }
-
-        /**
-         * @brief Get block display name
-         * @return Display name
-         */
-        virtual std::string GetDisplayName() const { return m_name; }
-
-        /**
-         * @brief Get block description
-         * @return Block description
-         */
-        virtual std::string GetDescription() const { return "A block"; }
-
-        // Block properties
-
-        /**
-         * @brief Get block textures
-         * @return Block textures
-         */
-        const BlockTextures& GetTextures() const { return m_textures; }
-
-        /**
-         * @brief Set block textures
-         * @param textures New textures
-         */
-        void SetTextures(const BlockTextures& textures) { m_textures = textures; }
-
-        /**
-         * @brief Get physics properties
-         * @return Physics properties
-         */
-        const BlockPhysics& GetPhysics() const { return m_physics; }
-
-        /**
-         * @brief Set physics properties
-         * @param physics New physics properties
-         */
-        void SetPhysics(const BlockPhysics& physics) { m_physics = physics; }
-
-        /**
-         * @brief Get collision bounds
-         * @return Collision bounds
-         */
-        const BlockBounds& GetBounds() const { return m_bounds; }
-
-        /**
-         * @brief Set collision bounds
-         * @param bounds New bounds
-         */
-        void SetBounds(const BlockBounds& bounds) { m_bounds = bounds; }
-
-        /**
-         * @brief Get render type
-         * @return Render type
-         */
-        BlockRenderType GetRenderType() const { return m_renderType; }
-
-        /**
-         * @brief Set render type
-         * @param type New render type
-         */
-        void SetRenderType(BlockRenderType type) { m_renderType = type; }
-
-        /**
-         * @brief Get material type
-         * @return Material type
-         */
-        BlockMaterial GetMaterial() const { return m_material; }
-
-        /**
-         * @brief Set material type
-         * @param material New material
-         */
-        void SetMaterial(BlockMaterial material) { m_material = material; }
-
-        /**
-         * @brief Get sound type
-         * @return Sound type
-         */
-        BlockSoundType GetSoundType() const { return m_soundType; }
-
-        /**
-         * @brief Set sound type
-         * @param soundType New sound type
-         */
-        void SetSoundType(BlockSoundType soundType) { m_soundType = soundType; }
-
-        // Block state
-
-        /**
-         * @brief Get maximum metadata value
-         * @return Maximum metadata
-         */
-        virtual BlockMetadata GetMaxMetadata() const { return 0; }
-
-        /**
-         * @brief Check if metadata is valid
-         * @param metadata Metadata to check
-         * @return true if valid, false otherwise
-         */
-        virtual bool IsValidMetadata(BlockMetadata metadata) const {
-            return metadata <= GetMaxMetadata();
-        }
-
-        /**
-         * @brief Get light level emitted by block
-         * @param metadata Block metadata
-         * @return Light level (0-15)
-         */
-        virtual int GetLightLevel(BlockMetadata metadata = 0) const { return 0; }
-
-        /**
-         * @brief Check if block is opaque
-         * @param metadata Block metadata
-         * @return true if opaque, false otherwise
-         */
-        virtual bool IsOpaque(BlockMetadata metadata = 0) const {
-            return m_physics.isOpaque;
-        }
+        const std::string& GetName() const { return m_properties.name; }
 
         /**
          * @brief Check if block is solid
-         * @param metadata Block metadata
-         * @return true if solid, false otherwise
+         * @return true if solid
          */
-        virtual bool IsSolid(BlockMetadata metadata = 0) const {
-            return m_physics.isSolid;
-        }
-
-        // Block drops
+        bool IsSolid() const { return m_properties.isSolid; }
 
         /**
-         * @brief Get block drops
-         * @param metadata Block metadata
-         * @return Vector of possible drops
+         * @brief Check if block is transparent
+         * @return true if transparent
          */
-        virtual std::vector<BlockDrop> GetDrops(BlockMetadata metadata = 0) const;
+        bool IsTransparent() const { return m_properties.isTransparent; }
 
         /**
-         * @brief Add drop to block
-         * @param drop Drop information
+         * @brief Get light level emitted by block
+         * @return Light level (0-15)
          */
-        void AddDrop(const BlockDrop& drop);
+        float GetLightLevel() const { return m_properties.lightLevel; }
 
         /**
-         * @brief Clear all drops
+         * @brief Get light opacity (how much light is blocked)
+         * @return Light opacity (0-15)
          */
-        void ClearDrops();
-
-        // Block behaviors
+        float GetLightOpacity() const { return m_properties.lightOpacity; }
 
         /**
-         * @brief Called when block is placed
-         * @param world World instance
-         * @param x Block X coordinate
-         * @param y Block Y coordinate
-         * @param z Block Z coordinate
-         * @param player Player who placed the block
-         * @param metadata Block metadata
+         * @brief Get mining hardness
+         * @return Block hardness
          */
-        virtual void OnPlace(World* world, int x, int y, int z,
-                           Player* player = nullptr, BlockMetadata metadata = 0);
+        BlockHardness GetHardness() const { return m_properties.hardness; }
 
         /**
-         * @brief Called when block is broken
-         * @param world World instance
-         * @param x Block X coordinate
-         * @param y Block Y coordinate
-         * @param z Block Z coordinate
-         * @param player Player who broke the block
-         * @param metadata Block metadata
+         * @brief Check if block can be harvested
+         * @return true if can be harvested
          */
-        virtual void OnBreak(World* world, int x, int y, int z,
-                           Player* player = nullptr, BlockMetadata metadata = 0);
+        bool CanHarvest() const { return m_properties.canHarvest; }
 
         /**
-         * @brief Called when block is interacted with
-         * @param world World instance
-         * @param x Block X coordinate
-         * @param y Block Y coordinate
-         * @param z Block Z coordinate
-         * @param player Player interacting with block
-         * @param metadata Block metadata
-         * @return true if interaction was handled, false otherwise
+         * @brief Get maximum stack size
+         * @return Maximum stack size
          */
-        virtual bool OnInteract(World* world, int x, int y, int z,
-                              Player* player, BlockMetadata metadata = 0);
+        int GetMaxStackSize() const { return m_properties.maxStackSize; }
 
         /**
-         * @brief Called when block receives a random tick
-         * @param world World instance
-         * @param x Block X coordinate
-         * @param y Block Y coordinate
-         * @param z Block Z coordinate
-         * @param metadata Block metadata
+         * @brief Get texture name for specific face
+         * @param face Block face
+         * @return Texture name
          */
-        virtual void OnRandomTick(World* world, int x, int y, int z, BlockMetadata metadata = 0);
+        std::string GetTextureName(BlockFace face = BlockFace::NORTH) const;
 
         /**
-         * @brief Called when block receives a scheduled tick
-         * @param world World instance
-         * @param x Block X coordinate
-         * @param y Block Y coordinate
-         * @param z Block Z coordinate
-         * @param metadata Block metadata
+         * @brief Set custom texture for face
+         * @param face Block face
+         * @param textureName Texture name
          */
-        virtual void OnScheduledTick(World* world, int x, int y, int z, BlockMetadata metadata = 0);
+        void SetTextureName(BlockFace face, const std::string& textureName);
 
         /**
-         * @brief Called when neighboring block changes
-         * @param world World instance
-         * @param x Block X coordinate
-         * @param y Block Y coordinate
-         * @param z Block Z coordinate
-         * @param neighborX Neighbor X coordinate
-         * @param neighborY Neighbor Y coordinate
-         * @param neighborZ Neighbor Z coordinate
-         * @param metadata Block metadata
+         * @brief Get drop items when block is broken
+         * @return Vector of block types dropped
          */
-        virtual void OnNeighborChange(World* world, int x, int y, int z,
-                                    int neighborX, int neighborY, int neighborZ,
-                                    BlockMetadata metadata = 0);
+        const std::vector<BlockType>& GetDropItems() const { return m_properties.dropItems; }
 
         /**
-         * @brief Called when entity collides with block
-         * @param world World instance
-         * @param x Block X coordinate
-         * @param y Block Y coordinate
-         * @param z Block Z coordinate
-         * @param entity Entity that collided
-         * @param metadata Block metadata
+         * @brief Get drop quantities
+         * @return Vector of drop quantities
          */
-        virtual void OnEntityCollide(World* world, int x, int y, int z,
-                                   Entity* entity, BlockMetadata metadata = 0);
-
-        // Block utilities
+        const std::vector<int>& GetDropQuantities() const { return m_properties.dropQuantities; }
 
         /**
-         * @brief Get mining time for block
-         * @param toolEfficiency Tool efficiency multiplier
-         * @param metadata Block metadata
-         * @return Mining time in seconds
+         * @brief Check if block has gravity
+         * @return true if block has gravity
          */
-        virtual float GetMiningTime(float toolEfficiency = 1.0f, BlockMetadata metadata = 0) const;
+        bool HasGravity() const { return m_properties.hasGravity; }
 
         /**
-         * @brief Get explosion resistance
-         * @param metadata Block metadata
-         * @return Explosion resistance
+         * @brief Get slipperiness factor
+         * @return Slipperiness factor
          */
-        virtual float GetExplosionResistance(BlockMetadata metadata = 0) const {
-            return m_physics.resistance;
-        }
+        float GetSlipperiness() const { return m_properties.slipperiness; }
 
         /**
-         * @brief Check if block can be replaced
-         * @param metadata Block metadata
-         * @return true if can be replaced, false otherwise
+         * @brief Create default block of specified type
+         * @param type Block type
+         * @return New block instance
          */
-        virtual bool CanBeReplaced(BlockMetadata metadata = 0) const {
-            return m_material == BlockMaterial::Replaceable;
-        }
-
-        /**
-         * @brief Check if block can be placed at position
-         * @param world World instance
-         * @param x Block X coordinate
-         * @param y Block Y coordinate
-         * @param z Block Z coordinate
-         * @param player Player placing the block
-         * @return true if can be placed, false otherwise
-         */
-        virtual bool CanPlaceAt(World* world, int x, int y, int z, Player* player = nullptr) const;
-
-        // Serialization
-
-        /**
-         * @brief Serialize block data
-         * @param data Output data map
-         * @return true if successful, false otherwise
-         */
-        virtual bool Serialize(std::unordered_map<std::string, std::any>& data) const;
-
-        /**
-         * @brief Deserialize block data
-         * @param data Input data map
-         * @return true if successful, false otherwise
-         */
-        virtual bool Deserialize(const std::unordered_map<std::string, std::any>& data);
-
-        // Static block creation
-
-        /**
-         * @brief Create default air block
-         * @return Air block instance
-         */
-        static std::unique_ptr<Block> CreateAir();
-
-        /**
-         * @brief Create default stone block
-         * @return Stone block instance
-         */
-        static std::unique_ptr<Block> CreateStone();
-
-        /**
-         * @brief Create default dirt block
-         * @return Dirt block instance
-         */
-        static std::unique_ptr<Block> CreateDirt();
-
-        /**
-         * @brief Create default grass block
-         * @return Grass block instance
-         */
-        static std::unique_ptr<Block> CreateGrass();
-
-        /**
-         * @brief Create default water block
-         * @return Water block instance
-         */
-        static std::unique_ptr<Block> CreateWater();
-
-    protected:
-        /**
-         * @brief Initialize default block properties
-         */
-        void InitializeDefaults();
-
-        BlockID m_id;                              ///< Unique block ID
-        std::string m_name;                        ///< Block name
-
-        BlockTextures m_textures;                  ///< Block textures
-        BlockPhysics m_physics;                    ///< Physics properties
-        BlockBounds m_bounds;                      ///< Collision bounds
-        BlockRenderType m_renderType;              ///< Render type
-        BlockMaterial m_material;                  ///< Material type
-        BlockSoundType m_soundType;                ///< Sound type
-
-        std::vector<BlockDrop> m_drops;            ///< Block drops
-
-        static BlockID s_nextBlockId;              ///< Next block ID counter
-    };
-
-    /**
-     * @class BlockRegistry
-     * @brief Central registry for all block types
-     */
-    class BlockRegistry {
-    public:
-        /**
-         * @brief Register a block type
-         * @param block Block to register
-         * @return true if registered, false if ID already exists
-         */
-        static bool RegisterBlock(std::unique_ptr<Block> block);
-
-        /**
-         * @brief Get block by ID
-         * @param id Block ID
-         * @return Block pointer or nullptr if not found
-         */
-        static Block* GetBlock(BlockID id);
-
-        /**
-         * @brief Get block by name
-         * @param name Block name
-         * @return Block pointer or nullptr if not found
-         */
-        static Block* GetBlock(const std::string& name);
-
-        /**
-         * @brief Check if block is registered
-         * @param id Block ID
-         * @return true if registered, false otherwise
-         */
-        static bool IsRegistered(BlockID id);
-
-        /**
-         * @brief Check if block name is registered
-         * @param name Block name
-         * @return true if registered, false otherwise
-         */
-        static bool IsRegistered(const std::string& name);
-
-        /**
-         * @brief Get all registered blocks
-         * @return Vector of block pointers
-         */
-        static std::vector<Block*> GetAllBlocks();
-
-        /**
-         * @brief Get number of registered blocks
-         * @return Number of registered blocks
-         */
-        static size_t GetBlockCount();
-
-        /**
-         * @brief Clear all registered blocks
-         */
-        static void ClearRegistry();
-
-        /**
-         * @brief Initialize default blocks
-         */
-        static void InitializeDefaults();
-
-        /**
-         * @brief Get block ID by name
-         * @param name Block name
-         * @return Block ID or 0 if not found
-         */
-        static BlockID GetBlockId(const std::string& name);
-
-        /**
-         * @brief Get block name by ID
-         * @param id Block ID
-         * @return Block name or empty string if not found
-         */
-        static std::string GetBlockName(BlockID id);
+        static std::shared_ptr<Block> CreateBlock(BlockType type);
 
     private:
-        static std::unordered_map<BlockID, std::unique_ptr<Block>> s_blocks;
-        static std::unordered_map<std::string, BlockID> s_nameToId;
-        static std::unordered_map<BlockID, std::string> s_idToName;
+        BlockType m_type;                                          ///< Block type identifier
+        BlockProperties m_properties;                              ///< Block properties
+        std::array<std::string, 6> m_faceTextures;                ///< Textures for each face
+
+        /**
+         * @brief Initialize face textures with default texture
+         */
+        void InitializeFaceTextures();
     };
 
 } // namespace VoxelCraft

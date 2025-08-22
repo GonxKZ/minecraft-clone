@@ -15,6 +15,7 @@
 #include <stdexcept>
 
 #include "../entities/EntityManager.hpp"
+#include "../graphics/Renderer.hpp"
 #include "../entities/RenderSystem.hpp"
 #include "../entities/ECSExample.hpp"
 #include "../procedural/ProceduralGenerator.hpp"
@@ -226,12 +227,25 @@ namespace VoxelCraft {
                        "Exiting");
     }
 
+    void Engine::SetRenderer(std::shared_ptr<Renderer> renderer) {
+        m_renderer = renderer;
+        VOXELCRAFT_INFO("Renderer set for engine");
+    }
+
+    void Engine::SetInputManager(std::shared_ptr<InputManager> inputManager) {
+        m_inputManager = inputManager;
+        VOXELCRAFT_INFO("InputManager set for engine");
+    }
+
     bool Engine::InitializeSubsystems() {
         VOXELCRAFT_INFO("Initializing engine subsystems");
 
         try {
             // Initialize entity manager
             m_entityManager = std::make_unique<EntityManager>();
+
+            // Initialize renderer (this will be passed from Application)
+            // Note: Renderer is initialized by Application, not here
 
             // Initialize render system
             m_renderSystem = std::make_unique<RenderSystem>("MainRenderSystem");
@@ -408,12 +422,38 @@ namespace VoxelCraft {
         // Render current frame
         auto renderStart = std::chrono::steady_clock::now();
 
-        // Render entities through render system
-        if (m_renderSystem) {
-            m_renderSystem->Render();
-        } else if (m_entityManager) {
-            // Fallback to direct entity rendering
-            m_entityManager->RenderEntities();
+        // Use renderer if available
+        if (m_renderer) {
+            // Submit some test render commands
+            static float rotation = 0.0f;
+            rotation += 0.01f;
+
+            // Create a simple cube mesh for testing
+            auto cubeMesh = m_renderer->CreateCubeMesh(1.0f);
+
+            // Submit cube render command
+            VoxelCraft::RenderCommand cubeCommand;
+            cubeCommand.mode = VoxelCraft::RenderMode::SOLID;
+            cubeCommand.position = Vec3(0.0f, 0.0f, 0.0f);
+            cubeCommand.transform = Mat4::Translate(Vec3(0.0f, 0.0f, -5.0f)) * Mat4::Scale(Vec3(1.0f, 1.0f, 1.0f));
+            cubeCommand.color = Vec4(1.0f, 0.0f, 0.0f, 1.0f); // Red cube
+            cubeCommand.mesh = cubeMesh;
+            cubeCommand.distance = 5.0f;
+
+            m_renderer->SubmitCommand(cubeCommand);
+
+            // Render using the renderer
+            m_renderer->Render();
+        }
+
+        // Fallback to render system if no renderer
+        if (!m_renderer) {
+            if (m_renderSystem) {
+                m_renderSystem->Render();
+            } else if (m_entityManager) {
+                // Fallback to direct entity rendering
+                m_entityManager->RenderEntities();
+            }
         }
 
         // Render ECS example

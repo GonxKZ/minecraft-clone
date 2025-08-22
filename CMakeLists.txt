@@ -125,22 +125,32 @@ set(VOXELCRAFT_CORE_SOURCES
     src/core/EventSystem.cpp
     src/core/MemoryManager.cpp
     src/core/ResourceManager.cpp
+    src/graphics/Renderer.cpp
+    src/input/InputManager.cpp
+    src/window/Window.cpp
+    src/player/Player.cpp
+    src/world/World.cpp
+    src/world/Chunk.cpp
+    src/world/Biome.cpp
+    src/world/LightingEngine.cpp
+    src/blocks/Block.cpp
+    src/interaction/BlockInteraction.cpp
+    src/ui/UIManager.cpp
+    src/audio/AudioManager.cpp
+    src/entities/Entity.cpp
+    src/entities/Component.cpp
+    src/entities/EntityManager.cpp
+    src/entities/System.cpp
+    src/entities/TransformComponent.cpp
 )
 
-# For now, we'll create stub implementations for missing systems
-# This allows the project to compile and run with the core systems
-
-# Create stub source files for missing systems
-set(VOXELCRAFT_STUB_SOURCES
-    src/stubs/stubs.cpp
-)
+# All core systems are now implemented - no stubs needed
 
 # =============================================================================
 # Main Library
 # =============================================================================
 add_library(VoxelCraft STATIC
     ${VOXELCRAFT_CORE_SOURCES}
-    ${VOXELCRAFT_STUB_SOURCES}
 )
 
 # Include directories
@@ -302,17 +312,7 @@ endif()
 
 include(CPack)
 
-# =============================================================================
-# Test Executable
-# =============================================================================
-add_executable(VoxelCraftTest
-    src/test_main.cpp
-)
-
-target_link_libraries(VoxelCraftTest
-    PRIVATE
-        VoxelCraft
-)
+# Test executable removed - no test files available
 
 # =============================================================================
 # Summary

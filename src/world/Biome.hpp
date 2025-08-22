@@ -1,291 +1,201 @@
 /**
  * @file Biome.hpp
- * @brief VoxelCraft Advanced Biome System
+ * @brief VoxelCraft World System - Biome System (Minecraft-like)
  * @version 1.0.0
  * @author VoxelCraft Team
  *
- * This file defines the biome system that creates diverse environments
- * with unique terrain, vegetation, structures, and atmospheric conditions.
+ * Comprehensive biome system with Overworld, Nether, and End biomes
  */
 
 #ifndef VOXELCRAFT_WORLD_BIOME_HPP
 #define VOXELCRAFT_WORLD_BIOME_HPP
 
 #include <string>
-#include <vector>
 #include <unordered_map>
+#include <vector>
 #include <memory>
 #include <functional>
-#include <optional>
 
-#include "../core/Config.hpp"
+#include "../blocks/Block.hpp"
 
 namespace VoxelCraft {
 
     /**
+     * @enum Dimension
+     * @brief Game dimensions (Minecraft-like)
+     */
+    enum class Dimension {
+        OVERWORLD,  // Normal world
+        NETHER,     // Hell dimension
+        END         // End dimension
+    };
+
+    /**
+     * @enum Climate
+     * @brief Climate types for biomes
+     */
+    enum class Climate {
+        COLD,       // Tundra, Ice Plains
+        COOL,       // Taiga, Mountains
+        TEMPERATE,  // Forest, Plains, Hills
+        WARM,       // Desert, Savanna
+        HOT         // Jungle, Mesa
+    };
+
+    /**
      * @enum BiomeType
-     * @brief Type of biome for classification
+     * @brief All biome types in VoxelCraft
      */
     enum class BiomeType {
-        // Ocean biomes
-        Ocean,              ///< Standard ocean
-        DeepOcean,          ///< Deep ocean
-        WarmOcean,          ///< Warm ocean
-        LukewarmOcean,      ///< Lukewarm ocean
-        ColdOcean,          ///< Cold ocean
-        FrozenOcean,        ///< Frozen ocean
+        // Overworld Biomes
+        PLAINS,
+        FOREST,
+        DARK_FOREST,
+        BIRCH_FOREST,
+        JUNGLE,
+        TAIGA,
+        SNOWY_TAIGA,
+        MOUNTAINS,
+        SNOWY_MOUNTAINS,
+        DESERT,
+        SAVANNA,
+        MESA,
+        BADLANDS,
+        ERODED_BADLANDS,
+        WOODED_BADLANDS,
+        SWAMP,
+        BEACH,
+        SNOWY_BEACH,
+        STONE_SHORE,
+        RIVER,
+        FROZEN_RIVER,
+        OCEAN,
+        DEEP_OCEAN,
+        WARM_OCEAN,
+        LUKEWARM_OCEAN,
+        COLD_OCEAN,
+        DEEP_COLD_OCEAN,
+        FROZEN_OCEAN,
+        DEEP_FROZEN_OCEAN,
 
-        // Beach biomes
-        Beach,              ///< Standard beach
-        StoneBeach,         ///< Stone beach
+        // Nether Biomes
+        NETHER_WASTES,
+        CRIMSON_FOREST,
+        WARPED_FOREST,
+        SOUL_SAND_VALLEY,
+        BASALT_DELTAS,
 
-        // Desert biomes
-        Desert,             ///< Standard desert
-        DesertHills,        ///< Desert hills
+        // End Biomes
+        END_HIGHLANDS,
+        END_MIDLANDS,
+        END_BARRENS,
+        SMALL_END_ISLANDS,
 
-        // Savanna biomes
-        Savanna,            ///< Standard savanna
-        SavannaPlateau,     ///< Savanna plateau
-        ShatteredSavanna,   ///< Shattered savanna
-        ShatteredSavannaPlateau, ///< Shattered savanna plateau
-
-        // Plains biomes
-        Plains,             ///< Standard plains
-        SunflowerPlains,    ///< Sunflower plains
-
-        // Forest biomes
-        Forest,             ///< Standard forest
-        ForestHills,        ///< Forest hills
-        FlowerForest,       ///< Flower forest
-        BirchForest,        ///< Birch forest
-        BirchForestHills,   ///< Birch forest hills
-        DarkForest,         ///< Dark forest
-        DarkForestHills,    ///< Dark forest hills
-
-        // Taiga biomes
-        Taiga,              ///< Standard taiga
-        TaigaHills,         ///< Taiga hills
-        TaigaMountains,     ///< Taiga mountains
-        SnowyTaiga,         ///< Snowy taiga
-        SnowyTaigaHills,    ///< Snowy taiga hills
-        SnowyTaigaMountains, ///< Snowy taiga mountains
-
-        // Swamp biomes
-        Swamp,              ///< Standard swamp
-        SwampHills,         ///< Swamp hills
-
-        // Jungle biomes
-        Jungle,             ///< Standard jungle
-        JungleHills,        ///< Jungle hills
-        JungleEdge,         ///< Jungle edge
-        ModifiedJungle,     ///< Modified jungle
-        ModifiedJungleEdge, ///< Modified jungle edge
-
-        // Mountain biomes
-        Mountains,          ///< Standard mountains
-        MountainEdge,       ///< Mountain edge
-        GravellyMountains,  ///< Gravelly mountains
-        ModifiedGravellyMountains, ///< Modified gravelly mountains
-
-        // Snowy biomes
-        SnowyTundra,        ///< Snowy tundra
-        SnowyMountains,     ///< Snowy mountains
-        IceSpikes,          ///< Ice spikes
-
-        // River biomes
-        River,              ///< Standard river
-        FrozenRiver,        ///< Frozen river
-
-        // Mushroom biomes
-        MushroomFields,     ///< Mushroom fields
-        MushroomFieldShore, ///< Mushroom field shore
-
-        // Nether biomes
-        Nether,             ///< Standard nether
-        NetherWastes,       ///< Nether wastes
-        SoulSandValley,     ///< Soul sand valley
-        CrimsonForest,      ///< Crimson forest
-        WarpedForest,       ///< Warped forest
-        BasaltDeltas,       ///< Basalt deltas
-
-        // End biomes
-        End,                ///< Standard end
-        EndHighlands,       ///< End highlands
-        EndMidlands,        ///< End midlands
-        EndBarrens,         ///< End barrens
-        SmallEndIslands,    ///< Small end islands
-        EndIslands,         ///< End islands
-
-        // Custom biomes
-        Custom,             ///< Custom biome type
-        Count               ///< Number of biome types
+        // Special Biomes
+        THE_VOID
     };
 
     /**
-     * @struct BiomeColor
-     * @brief Color information for biome rendering
+     * @struct BiomeProperties
+     * @brief Physical and environmental properties of a biome
      */
-    struct BiomeColor {
-        uint32_t grassColor;        ///< Grass color
-        uint32_t foliageColor;      ///< Foliage color
-        uint32_t waterColor;        ///< Water color
-        uint32_t skyColor;          ///< Sky color
-        uint32_t fogColor;          ///< Fog color
-        float temperature;          ///< Biome temperature (0.0 - 1.0)
-        float downfall;             ///< Biome rainfall (0.0 - 1.0)
-    };
+    struct BiomeProperties {
+        std::string name;                    ///< Display name
+        std::string description;             ///< Biome description
+        Dimension dimension;                 ///< Dimension this biome belongs to
+        Climate climate;                     ///< Climate type
+        BiomeType type;                      ///< Biome type identifier
 
-    /**
-     * @struct BiomeTerrain
-     * @brief Terrain generation parameters for biome
-     */
-    struct BiomeTerrain {
-        float baseHeight;           ///< Base terrain height
-        float heightVariation;      ///< Height variation
-        float roughness;            ///< Terrain roughness
-        float hilliness;            ///< Hill formation
-        float terrainScale;         ///< Terrain scale factor
-        float detailScale;          ///< Detail scale factor
-        int minHeight;              ///< Minimum height
-        int maxHeight;              ///< Maximum height
-        bool hasRivers;             ///< Has rivers
-        bool hasCaves;              ///< Has caves
-        float caveDensity;          ///< Cave generation density
-    };
+        // Environmental properties
+        float temperature;                   ///< Temperature (0.0 - 2.0, 0.15 = snowy, 0.8 = warm)
+        float humidity;                      ///< Humidity level (0.0 - 1.0)
+        float downfall;                      ///< Precipitation amount (0.0 - 1.0)
+        float depth;                         ///< Base height modifier
+        float scale;                         ///< Height variation scale
 
-    /**
-     * @struct BiomeFeatures
-     * @brief Feature generation parameters for biome
-     */
-    struct BiomeFeatures {
-        // Vegetation
-        float treeDensity;          ///< Tree generation density
-        float flowerDensity;        ///< Flower generation density
-        float grassDensity;         ///< Grass generation density
-        float bushDensity;          ///< Bush generation density
-        float reedDensity;          ///< Reed generation density
-        float cactusDensity;        ///< Cactus generation density
+        // Visual properties
+        uint32_t skyColor;                   ///< Sky color (RGBA)
+        uint32_t fogColor;                   ///< Fog color (RGBA)
+        uint32_t waterColor;                 ///< Water color (RGBA)
+        uint32_t grassColor;                 ///< Grass color (RGBA)
+        uint32_t foliageColor;               ///< Foliage color (RGBA)
 
-        // Ores
-        float coalDensity;          ///< Coal ore density
-        float ironDensity;          ///< Iron ore density
-        float goldDensity;          ///< Gold ore density
-        float diamondDensity;       ///< Diamond ore density
-        float redstoneDensity;      ///< Redstone ore density
-        float lapisDensity;         ///< Lapis ore density
+        // Block properties
+        BlockType surfaceBlock;              ///< Top surface block
+        BlockType subsurfaceBlock;           ///< Block below surface
+        BlockType underwaterBlock;           ///< Block underwater
+        BlockType stoneBlock;                ///< Stone variant
 
-        // Structures
-        float villageDensity;       ///< Village generation density
-        float dungeonDensity;       ///< Dungeon generation density
-        float templeDensity;        ///< Temple generation density
-        float strongholdDensity;    ///< Stronghold generation density
-        float mansionDensity;       ///< Mansion generation density
-    };
+        // Vegetation properties
+        float treeDensity;                   ///< Trees per chunk (0.0 - 1.0)
+        float grassDensity;                  ///< Grass density (0.0 - 1.0)
+        float flowerDensity;                 ///< Flower density (0.0 - 1.0)
+        float mushroomDensity;               ///< Mushroom density (0.0 - 1.0)
 
-    /**
-     * @struct BiomeClimate
-     * @brief Climate parameters for biome
-     */
-    struct BiomeClimate {
-        float temperature;          ///< Base temperature (0.0 - 1.0)
-        float temperatureVariation; ///< Temperature variation
-        float humidity;             ///< Base humidity (0.0 - 1.0)
-        float humidityVariation;    ///< Humidity variation
-        float precipitation;        ///< Precipitation amount
-        bool canSnow;               ///< Can snow in this biome
-        bool canRain;               ///< Can rain in this biome
-        bool isHumid;               ///< Is humid biome
-        bool isDry;                 ///< Is dry biome
-        bool isCold;                ///< Is cold biome
-        bool isHot;                 ///< Is hot biome
-    };
+        // Mob spawning
+        std::vector<std::string> ambientMobs;    ///< Ambient creatures
+        std::vector<std::string> passiveMobs;    ///< Passive creatures
+        std::vector<std::string> hostileMobs;    ///< Hostile creatures
+        std::vector<std::string> waterMobs;      ///< Water creatures
 
-    /**
-     * @struct BiomeSpawning
-     * @brief Mob spawning parameters for biome
-     */
-    struct BiomeSpawning {
-        struct SpawnEntry {
-            std::string entityType;     ///< Entity type to spawn
-            int minCount;              ///< Minimum spawn count
-            int maxCount;              ///< Maximum spawn count
-            int weight;                ///< Spawn weight
-            int minY;                  ///< Minimum Y level
-            int maxY;                  ///< Maximum Y level
-        };
+        // Generation features
+        bool canGenerateTrees;               ///< Can generate trees
+        bool canGenerateCaves;               ///< Can generate caves
+        bool canGenerateLakes;               ///< Can generate lakes
+        bool canGenerateOres;                ///< Can generate ores
+        bool canGenerateVillages;            ///< Can generate villages
+        bool canGenerateTemples;             ///< Can generate temples
 
-        std::vector<SpawnEntry> passiveMobs;    ///< Passive mob spawns
-        std::vector<SpawnEntry> hostileMobs;    ///< Hostile mob spawns
-        std::vector<SpawnEntry> ambientMobs;    ///< Ambient mob spawns
-        std::vector<SpawnEntry> waterMobs;      ///< Water mob spawns
+        // Music and ambiance
+        std::string musicTrack;              ///< Background music
+        std::vector<std::string> ambientSounds; ///< Ambient sound effects
 
-        float spawnRate;              ///< Overall spawn rate multiplier
-        bool canSpawnAnimals;         ///< Can spawn animals
-        bool canSpawnMonsters;        ///< Can spawn monsters
-        bool canSpawnAmbient;         ///< Can spawn ambient creatures
-    };
-
-    /**
-     * @struct BiomeMusic
-     * @brief Music and audio parameters for biome
-     */
-    struct BiomeMusic {
-        std::vector<std::string> musicTracks;    ///< Available music tracks
-        std::vector<std::string> ambientSounds;  ///< Ambient sound effects
-        std::vector<std::string> moodSounds;     ///< Mood sound effects
-        float musicVolume;         ///< Music volume multiplier
-        float ambientVolume;       ///< Ambient volume multiplier
-        float moodVolume;          ///< Mood volume multiplier
-        float musicInterval;       ///< Music interval (seconds)
-        float moodInterval;        ///< Mood interval (seconds)
+        BiomeProperties()
+            : name("Unknown Biome")
+            , description("An unknown biome")
+            , dimension(Dimension::OVERWORLD)
+            , climate(Climate::TEMPERATE)
+            , type(BiomeType::PLAINS)
+            , temperature(0.8f)
+            , humidity(0.4f)
+            , downfall(0.4f)
+            , depth(0.1f)
+            , scale(0.2f)
+            , skyColor(0xFF87CEEB)  // Light blue
+            , fogColor(0xFFC0D8FF)
+            , waterColor(0xFF3F76E4)
+            , grassColor(0xFF7CBD6B)
+            , foliageColor(0xFF48B518)
+            , surfaceBlock(BlockType::GRASS_BLOCK)
+            , subsurfaceBlock(BlockType::DIRT)
+            , underwaterBlock(BlockType::SAND)
+            , stoneBlock(BlockType::STONE)
+            , treeDensity(0.1f)
+            , grassDensity(0.3f)
+            , flowerDensity(0.05f)
+            , mushroomDensity(0.01f)
+            , canGenerateTrees(true)
+            , canGenerateCaves(true)
+            , canGenerateLakes(true)
+            , canGenerateOres(true)
+            , canGenerateVillages(false)
+            , canGenerateTemples(false)
+            , musicTrack("plains")
+        {}
     };
 
     /**
      * @class Biome
-     * @brief Represents a biome with all its characteristics
-     *
-     * A biome defines the environment, terrain generation, vegetation,
-     * structures, and atmosphere of a specific region in the world.
-     *
-     * Features:
-     * - Unique terrain generation parameters
-     * - Custom vegetation and feature placement
-     * - Specific mob spawning rules
-     * - Unique atmospheric conditions
-     * - Custom music and ambient sounds
-     * - Color variations for rendering
+     * @brief Represents a biome in the game world
      */
     class Biome {
     public:
         /**
          * @brief Constructor
-         * @param name Biome name
          * @param type Biome type
+         * @param properties Biome properties
          */
-        Biome(const std::string& name, BiomeType type);
-
-        /**
-         * @brief Destructor
-         */
-        ~Biome();
-
-        /**
-         * @brief Deleted copy constructor
-         */
-        Biome(const Biome&) = delete;
-
-        /**
-         * @brief Deleted copy assignment operator
-         */
-        Biome& operator=(const Biome&) = delete;
-
-        // Biome identification
-
-        /**
-         * @brief Get biome name
-         * @return Biome name
-         */
-        const std::string& GetName() const { return m_name; }
+        Biome(BiomeType type, const BiomeProperties& properties);
 
         /**
          * @brief Get biome type
@@ -294,468 +204,232 @@ namespace VoxelCraft {
         BiomeType GetType() const { return m_type; }
 
         /**
-         * @brief Get biome ID
-         * @return Unique biome ID
+         * @brief Get biome properties
+         * @return Biome properties
          */
-        uint32_t GetID() const { return m_id; }
-
-        // Biome properties
+        const BiomeProperties& GetProperties() const { return m_properties; }
 
         /**
-         * @brief Get biome color information
-         * @return Biome colors
+         * @brief Get biome name
+         * @return Biome name
          */
-        const BiomeColor& GetColor() const { return m_color; }
+        const std::string& GetName() const { return m_properties.name; }
 
         /**
-         * @brief Set biome color
-         * @param color New color information
+         * @brief Get biome dimension
+         * @return Dimension
          */
-        void SetColor(const BiomeColor& color) { m_color = color; }
+        Dimension GetDimension() const { return m_properties.dimension; }
 
         /**
-         * @brief Get terrain parameters
-         * @return Terrain parameters
+         * @brief Check if biome is in Overworld
+         * @return true if Overworld
          */
-        const BiomeTerrain& GetTerrain() const { return m_terrain; }
+        bool IsOverworld() const { return m_properties.dimension == Dimension::OVERWORLD; }
 
         /**
-         * @brief Set terrain parameters
-         * @param terrain New terrain parameters
+         * @brief Check if biome is in Nether
+         * @return true if Nether
          */
-        void SetTerrain(const BiomeTerrain& terrain) { m_terrain = terrain; }
+        bool IsNether() const { return m_properties.dimension == Dimension::NETHER; }
 
         /**
-         * @brief Get feature parameters
-         * @return Feature parameters
+         * @brief Check if biome is in End
+         * @return true if End
          */
-        const BiomeFeatures& GetFeatures() const { return m_features; }
+        bool IsEnd() const { return m_properties.dimension == Dimension::END; }
 
         /**
-         * @brief Set feature parameters
-         * @param features New feature parameters
-         */
-        void SetFeatures(const BiomeFeatures& features) { m_features = features; }
-
-        /**
-         * @brief Get climate parameters
-         * @return Climate parameters
-         */
-        const BiomeClimate& GetClimate() const { return m_climate; }
-
-        /**
-         * @brief Set climate parameters
-         * @param climate New climate parameters
-         */
-        void SetClimate(const BiomeClimate& climate) { m_climate = climate; }
-
-        /**
-         * @brief Get spawning parameters
-         * @return Spawning parameters
-         */
-        const BiomeSpawning& GetSpawning() const { return m_spawning; }
-
-        /**
-         * @brief Set spawning parameters
-         * @param spawning New spawning parameters
-         */
-        void SetSpawning(const BiomeSpawning& spawning) { m_spawning = spawning; }
-
-        /**
-         * @brief Get music parameters
-         * @return Music parameters
-         */
-        const BiomeMusic& GetMusic() const { return m_music; }
-
-        /**
-         * @brief Set music parameters
-         * @param music New music parameters
-         */
-        void SetMusic(const BiomeMusic& music) { m_music = music; }
-
-        // Biome queries
-
-        /**
-         * @brief Get temperature at specific location
+         * @brief Get temperature at position
          * @param x World X coordinate
          * @param z World Z coordinate
-         * @return Temperature (0.0 - 1.0)
+         * @return Temperature value
          */
         float GetTemperature(int x, int z) const;
 
         /**
-         * @brief Get humidity at specific location
+         * @brief Get humidity at position
          * @param x World X coordinate
          * @param z World Z coordinate
-         * @return Humidity (0.0 - 1.0)
+         * @return Humidity value
          */
         float GetHumidity(int x, int z) const;
 
         /**
-         * @brief Check if position is suitable for tree generation
-         * @param x World X coordinate
-         * @param y World Y coordinate
-         * @param z World Z coordinate
-         * @return true if suitable, false otherwise
+         * @brief Get surface block for biome
+         * @return Surface block type
          */
-        bool IsSuitableForTree(int x, int y, int z) const;
+        BlockType GetSurfaceBlock() const { return m_properties.surfaceBlock; }
 
         /**
-         * @brief Check if position is suitable for flower generation
-         * @param x World X coordinate
-         * @param y World Y coordinate
-         * @param z World Z coordinate
-         * @return true if suitable, false otherwise
+         * @brief Get subsurface block for biome
+         * @return Subsurface block type
          */
-        bool IsSuitableForFlower(int x, int y, int z) const;
+        BlockType GetSubsurfaceBlock() const { return m_properties.subsurfaceBlock; }
 
         /**
-         * @brief Get grass color at position
-         * @param x World X coordinate
-         * @param z World Z coordinate
-         * @return Grass color
+         * @brief Get stone block for biome
+         * @return Stone block type
          */
-        uint32_t GetGrassColor(int x, int z) const;
+        BlockType GetStoneBlock() const { return m_properties.stoneBlock; }
 
         /**
-         * @brief Get foliage color at position
-         * @param x World X coordinate
-         * @param z World Z coordinate
-         * @return Foliage color
+         * @brief Get random mob for spawning
+         * @param category Mob category (ambient, passive, hostile, water)
+         * @return Mob name or empty string
          */
-        uint32_t GetFoliageColor(int x, int z) const;
+        std::string GetRandomMob(const std::string& category) const;
 
         /**
-         * @brief Get water color at position
-         * @param x World X coordinate
-         * @param z World Z coordinate
-         * @return Water color
+         * @brief Check if feature can generate in this biome
+         * @param feature Feature name (trees, caves, lakes, etc.)
+         * @return true if can generate
          */
-        uint32_t GetWaterColor(int x, int z) const;
-
-        // Biome customization
+        bool CanGenerateFeature(const std::string& feature) const;
 
         /**
-         * @brief Add custom property
-         * @param key Property key
-         * @param value Property value
+         * @brief Get biome color for maps
+         * @return Color value (RGBA)
          */
-        template<typename T>
-        void SetProperty(const std::string& key, const T& value);
+        uint32_t GetMapColor() const;
 
         /**
-         * @brief Get custom property
-         * @param key Property key
-         * @param defaultValue Default value
-         * @return Property value or default
+         * @brief Create default biome of specified type
+         * @param type Biome type
+         * @return New biome instance
          */
-        template<typename T>
-        T GetProperty(const std::string& key, const T& defaultValue = T{}) const;
-
-        /**
-         * @brief Check if biome has property
-         * @param key Property key
-         * @return true if has property, false otherwise
-         */
-        bool HasProperty(const std::string& key) const;
-
-        /**
-         * @brief Remove custom property
-         * @param key Property key
-         */
-        void RemoveProperty(const std::string& key);
+        static std::shared_ptr<Biome> CreateBiome(BiomeType type);
 
     private:
-        /**
-         * @brief Initialize biome with default values
-         */
-        void InitializeDefaults();
-
-        /**
-         * @brief Generate unique biome ID
-         * @return Unique ID
-         */
-        static uint32_t GenerateID();
-
-        std::string m_name;                         ///< Biome name
-        BiomeType m_type;                           ///< Biome type
-        uint32_t m_id;                              ///< Unique biome ID
-
-        BiomeColor m_color;                         ///< Color information
-        BiomeTerrain m_terrain;                     ///< Terrain parameters
-        BiomeFeatures m_features;                   ///< Feature parameters
-        BiomeClimate m_climate;                     ///< Climate parameters
-        BiomeSpawning m_spawning;                   ///< Spawning parameters
-        BiomeMusic m_music;                         ///< Music parameters
-
-        std::unordered_map<std::string, std::any> m_properties; ///< Custom properties
-
-        static uint32_t s_nextID;                   ///< Next biome ID
-    };
-
-    // Template implementations
-
-    template<typename T>
-    void Biome::SetProperty(const std::string& key, const T& value) {
-        m_properties[key] = value;
-    }
-
-    template<typename T>
-    T Biome::GetProperty(const std::string& key, const T& defaultValue) const {
-        auto it = m_properties.find(key);
-        if (it != m_properties.end()) {
-            try {
-                return std::any_cast<T>(it->second);
-            } catch (const std::bad_any_cast&) {
-                return defaultValue;
-            }
-        }
-        return defaultValue;
-    }
-
-    /**
-     * @class BiomeRegistry
-     * @brief Registry for managing biomes
-     */
-    class BiomeRegistry {
-    public:
-        /**
-         * @brief Register a biome
-         * @param biome Biome to register
-         * @return true if registered, false if name exists
-         */
-        static bool RegisterBiome(std::unique_ptr<Biome> biome);
-
-        /**
-         * @brief Get biome by name
-         * @param name Biome name
-         * @return Biome pointer or nullptr if not found
-         */
-        static Biome* GetBiome(const std::string& name);
-
-        /**
-         * @brief Get biome by type
-         * @param type Biome type
-         * @return Biome pointer or nullptr if not found
-         */
-        static Biome* GetBiome(BiomeType type);
-
-        /**
-         * @brief Get biome by ID
-         * @param id Biome ID
-         * @return Biome pointer or nullptr if not found
-         */
-        static Biome* GetBiome(uint32_t id);
-
-        /**
-         * @brief Get all registered biomes
-         * @return Vector of biome pointers
-         */
-        static std::vector<Biome*> GetAllBiomes();
-
-        /**
-         * @brief Get biomes of specific type
-         * @param type Biome type
-         * @return Vector of biomes of type
-         */
-        static std::vector<Biome*> GetBiomesOfType(BiomeType type);
-
-        /**
-         * @brief Check if biome is registered
-         * @param name Biome name
-         * @return true if registered, false otherwise
-         */
-        static bool IsRegistered(const std::string& name);
-
-        /**
-         * @brief Unregister biome
-         * @param name Biome name
-         * @return true if unregistered, false if not found
-         */
-        static bool UnregisterBiome(const std::string& name);
-
-        /**
-         * @brief Clear all registered biomes
-         */
-        static void ClearRegistry();
-
-        /**
-         * @brief Initialize default biomes
-         */
-        static void InitializeDefaults();
-
-    private:
-        static std::unordered_map<std::string, std::unique_ptr<Biome>> s_biomes;
-        static std::unordered_map<BiomeType, Biome*> s_typeMap;
-        static std::unordered_map<uint32_t, Biome*> s_idMap;
+        BiomeType m_type;                    ///< Biome type identifier
+        BiomeProperties m_properties;        ///< Biome properties
     };
 
     /**
-     * @class BiomeGenerator
-     * @brief Generates biomes based on temperature and humidity
+     * @class BiomeManager
+     * @brief Manages all biomes and biome generation
      */
-    class BiomeGenerator {
+    class BiomeManager {
     public:
         /**
          * @brief Constructor
-         * @param seed Random seed
          */
-        explicit BiomeGenerator(int seed);
+        BiomeManager();
 
         /**
-         * @brief Get biome at coordinates
+         * @brief Get biome at world position
          * @param x World X coordinate
          * @param z World Z coordinate
-         * @return Biome at coordinates
+         * @param seed World seed
+         * @return Biome type
          */
-        Biome GetBiome(int x, int z);
+        BiomeType GetBiomeAt(int x, int z, int seed) const;
 
         /**
-         * @brief Get temperature at coordinates
+         * @brief Get biome properties
+         * @param type Biome type
+         * @return Biome properties
+         */
+        const BiomeProperties& GetBiomeProperties(BiomeType type) const;
+
+        /**
+         * @brief Get biome instance
+         * @param type Biome type
+         * @return Biome instance
+         */
+        std::shared_ptr<Biome> GetBiome(BiomeType type) const;
+
+        /**
+         * @brief Get all biomes in dimension
+         * @param dimension Target dimension
+         * @return Vector of biome types
+         */
+        std::vector<BiomeType> GetBiomesInDimension(Dimension dimension) const;
+
+        /**
+         * @brief Register custom biome
+         * @param type Biome type
+         * @param biome Biome instance
+         */
+        void RegisterBiome(BiomeType type, std::shared_ptr<Biome> biome);
+
+        /**
+         * @brief Generate biome map for chunk
+         * @param chunkX Chunk X coordinate
+         * @param chunkZ Chunk Z coordinate
+         * @param seed World seed
+         * @return 16x16 array of biome types
+         */
+        std::vector<BiomeType> GenerateBiomeMap(int chunkX, int chunkZ, int seed) const;
+
+        /**
+         * @brief Get biome temperature
+         * @param biome Biome type
          * @param x World X coordinate
          * @param z World Z coordinate
-         * @return Temperature (0.0 - 1.0)
+         * @return Temperature value
          */
-        float GetTemperature(int x, int z);
+        float GetBiomeTemperature(BiomeType biome, int x, int z) const;
 
         /**
-         * @brief Get humidity at coordinates
+         * @brief Get biome humidity
+         * @param biome Biome type
          * @param x World X coordinate
          * @param z World Z coordinate
-         * @return Humidity (0.0 - 1.0)
+         * @return Humidity value
          */
-        float GetHumidity(int x, int z);
+        float GetBiomeHumidity(BiomeType biome, int x, int z) const;
 
         /**
-         * @brief Set temperature scale
-         * @param scale Temperature scale factor
+         * @brief Find biome by temperature and humidity
+         * @param temperature Temperature value
+         * @param humidity Humidity value
+         * @param dimension Target dimension
+         * @return Best matching biome
          */
-        void SetTemperatureScale(float scale) { m_temperatureScale = scale; }
-
-        /**
-         * @brief Set humidity scale
-         * @param scale Humidity scale factor
-         */
-        void SetHumidityScale(float scale) { m_humidityScale = scale; }
-
-        /**
-         * @brief Set biome scale
-         * @param scale Biome scale factor
-         */
-        void SetBiomeScale(float scale) { m_biomeScale = scale; }
+        BiomeType FindBiomeByClimate(float temperature, float humidity, Dimension dimension) const;
 
     private:
         /**
-         * @brief Determine biome from temperature and humidity
-         * @param temperature Temperature (0.0 - 1.0)
-         * @param humidity Humidity (0.0 - 1.0)
-         * @return Biome type
+         * @brief Initialize default biomes
          */
-        BiomeType GetBiomeType(float temperature, float humidity) const;
+        void InitializeDefaultBiomes();
 
         /**
-         * @brief Get biome color based on temperature and humidity
-         * @param temperature Temperature (0.0 - 1.0)
-         * @param humidity Humidity (0.0 - 1.0)
-         * @return Biome color
+         * @brief Generate noise-based biome
+         * @param x World X coordinate
+         * @param z World Z coordinate
+         * @param seed World seed
+         * @return Biome type
          */
-        BiomeColor GetBiomeColor(float temperature, float humidity) const;
+        BiomeType GenerateBiomeNoise(int x, int z, int seed) const;
 
-        int m_seed;                    ///< Random seed
-        float m_temperatureScale;      ///< Temperature scale factor
-        float m_humidityScale;         ///< Humidity scale factor
-        float m_biomeScale;            ///< Biome scale factor
+        std::unordered_map<BiomeType, std::shared_ptr<Biome>> m_biomes;  ///< All registered biomes
+        mutable std::unordered_map<std::string, float> m_noiseCache;     ///< Noise cache for performance
     };
 
     /**
-     * @class BiomeUtils
-     * @brief Utility functions for biome operations
+     * @struct BiomeGenerationSettings
+     * @brief Settings for biome generation
      */
-    class BiomeUtils {
-    public:
-        /**
-         * @brief Convert biome type to string
-         * @param type Biome type
-         * @return String representation
-         */
-        static std::string BiomeTypeToString(BiomeType type);
+    struct BiomeGenerationSettings {
+        int seed;                          ///< World seed
+        float temperatureScale;            ///< Temperature noise scale
+        float humidityScale;               ///< Humidity noise scale
+        float biomeScale;                  ///< Biome size scale
+        bool enableRivers;                 ///< Enable river generation
+        bool enableBeaches;                ///< Enable beach generation
+        bool enableBiomes;                 ///< Enable biome-based generation
 
-        /**
-         * @brief Convert string to biome type
-         * @param str String representation
-         * @return Biome type or empty optional if invalid
-         */
-        static std::optional<BiomeType> StringToBiomeType(const std::string& str);
-
-        /**
-         * @brief Get biome display name
-         * @param type Biome type
-         * @return Display name
-         */
-        static std::string GetBiomeDisplayName(BiomeType type);
-
-        /**
-         * @brief Get biome description
-         * @param type Biome type
-         * @return Description text
-         */
-        static std::string GetBiomeDescription(BiomeType type);
-
-        /**
-         * @brief Check if biome is ocean type
-         * @param type Biome type
-         * @return true if ocean, false otherwise
-         */
-        static bool IsOceanBiome(BiomeType type);
-
-        /**
-         * @brief Check if biome is desert type
-         * @param type Biome type
-         * @return true if desert, false otherwise
-         */
-        static bool IsDesertBiome(BiomeType type);
-
-        /**
-         * @brief Check if biome is forest type
-         * @param type Biome type
-         * @return true if forest, false otherwise
-         */
-        static bool IsForestBiome(BiomeType type);
-
-        /**
-         * @brief Check if biome is cold type
-         * @param type Biome type
-         * @return true if cold, false otherwise
-         */
-        static bool IsColdBiome(BiomeType type);
-
-        /**
-         * @brief Check if biome is hot type
-         * @param type Biome type
-         * @return true if hot, false otherwise
-         */
-        static bool IsHotBiome(BiomeType type);
-
-        /**
-         * @brief Get biome spawn rate multiplier
-         * @param type Biome type
-         * @return Spawn rate multiplier
-         */
-        static float GetBiomeSpawnRate(BiomeType type);
-
-        /**
-         * @brief Get biome temperature range
-         * @param type Biome type
-         * @return Temperature range (min, max)
-         */
-        static std::pair<float, float> GetBiomeTemperatureRange(BiomeType type);
-
-        /**
-         * @brief Get biome humidity range
-         * @param type Biome type
-         * @return Humidity range (min, max)
-         */
-        static std::pair<float, float> GetBiomeHumidityRange(BiomeType type);
+        BiomeGenerationSettings()
+            : seed(0)
+            , temperatureScale(0.002f)
+            , humidityScale(0.002f)
+            , biomeScale(0.01f)
+            , enableRivers(true)
+            , enableBeaches(true)
+            , enableBiomes(true)
+        {}
     };
 
 } // namespace VoxelCraft

@@ -1,12 +1,8 @@
 /**
  * @file World.hpp
- * @brief VoxelCraft World Management System
+ * @brief VoxelCraft World System - Main World Coordinator
  * @version 1.0.0
  * @author VoxelCraft Team
- *
- * This file defines the main World class that manages the game world,
- * including terrain generation, chunk management, lighting, weather,
- * and all world-related functionality.
  */
 
 #ifndef VOXELCRAFT_WORLD_WORLD_HPP
@@ -16,43 +12,32 @@
 #include <unordered_map>
 #include <vector>
 #include <string>
-#include <functional>
 #include <atomic>
 #include <mutex>
-#include <shared_mutex>
-#include <optional>
-#include <deque>
-#include <chrono>
+#include <queue>
+#include <functional>
 
-#include "../core/Config.hpp"
+#include "Chunk.hpp"
+#include "Biome.hpp"
+#include "../blocks/Block.hpp"
 #include "../entities/Entity.hpp"
 
 namespace VoxelCraft {
 
     // Forward declarations
-    class Chunk;
-    class TerrainGenerator;
-    class Biome;
-    class NoiseGenerator;
-    class LightingEngine;
-    class WeatherSystem;
-    class WorldRenderer;
-    class BlockRegistry;
-    class ChunkManager;
+    class Player;
+    class WorldGenerator;
+    struct Vec3;
+    struct Vec2;
 
     /**
      * @enum WorldType
      * @brief Type of world generation
      */
     enum class WorldType {
-        Normal,         ///< Standard world with biomes
-        Flat,          ///< Flat world for creative mode
-        SuperFlat,     ///< Super flat world (single layer)
-        Custom,        ///< Custom world with specific settings
-        Debug,         ///< Debug world for testing
-        Amplified,     ///< Amplified terrain (extreme heights)
-        LargeBiomes,   ///< Large biome world
-        SingleBiome    ///< Single biome world
+        INFINITE,        // Infinite procedural world
+        FLAT,           // Flat world
+        CUSTOM          // Custom world with specific settings
     };
 
     /**
@@ -60,137 +45,79 @@ namespace VoxelCraft {
      * @brief Current state of the world
      */
     enum class WorldState {
-        Unloaded,      ///< World not loaded
-        Loading,       ///< World is loading
-        Loaded,        ///< World is loaded and ready
-        Generating,    ///< World is generating terrain
-        Saving,        ///< World is saving
-        Error          ///< World encountered an error
+        UNINITIALIZED,
+        INITIALIZING,
+        LOADING,
+        READY,
+        SAVING,
+        ERROR
     };
 
     /**
-     * @struct WorldInfo
-     * @brief Information about the world
+     * @struct WorldSettings
+     * @brief Configuration settings for world generation
      */
-    struct WorldInfo {
-        std::string name;                    ///< World name
-        std::string seed;                    ///< World seed
-        WorldType type;                      ///< World type
-        int version;                         ///< World format version
-        double creationTime;                 ///< World creation time
-        double lastPlayedTime;               ///< Last played time
-        int spawnX, spawnY, spawnZ;          ///< Spawn position
-        int maxHeight;                       ///< Maximum world height
-        int minHeight;                       ///< Minimum world height
-        int seaLevel;                        ///< Sea level
-        bool allowCheats;                    ///< Allow cheats
-        bool difficultyLocked;               ///< Difficulty locked
-        std::unordered_map<std::string, std::any> metadata; ///< Custom metadata
+    struct WorldSettings {
+        std::string worldName;
+        std::string seed;
+        WorldType worldType;
+        int worldHeight;
+        int seaLevel;
+        int renderDistance;    // In chunks
+        int simulationDistance;
+        bool generateCaves;
+        bool generateTrees;
+        bool generateStructures;
+        bool generateOres;
+
+        WorldSettings()
+            : worldName("New World")
+            , seed("0")
+            , worldType(WorldType::INFINITE)
+            , worldHeight(256)
+            , seaLevel(63)
+            , renderDistance(8)
+            , simulationDistance(6)
+            , generateCaves(true)
+            , generateTrees(true)
+            , generateStructures(true)
+            , generateOres(true)
+        {}
     };
 
     /**
-     * @struct WorldMetrics
-     * @brief Performance metrics for the world system
+     * @struct WorldStats
+     * @brief World statistics and performance info
      */
-    struct WorldMetrics {
-        // Chunk metrics
-        uint32_t totalChunks;                ///< Total number of chunks
-        uint32_t loadedChunks;               ///< Number of loaded chunks
-        uint32_t visibleChunks;              ///< Number of visible chunks
-        uint32_t pendingChunks;              ///< Number of pending chunk operations
-
-        // Generation metrics
-        double averageGenerationTime;        ///< Average chunk generation time (ms)
-        uint64_t chunksGenerated;            ///< Total chunks generated
-        uint32_t generationQueueSize;        ///< Size of generation queue
-
-        // Performance metrics
-        double chunkLoadTime;                ///< Average chunk load time (ms)
-        double chunkSaveTime;                ///< Average chunk save time (ms)
-        uint32_t memoryUsage;                ///< Memory usage in MB
-        double chunkUpdateRate;              ///< Chunk updates per second
-
-        // Lighting metrics
-        uint32_t lightUpdates;               ///< Number of light updates
-        double lightingTime;                 ///< Time spent on lighting (ms)
-
-        // World metrics
-        uint32_t activeEntities;             ///< Number of active entities
-        uint32_t blockUpdates;               ///< Block updates this frame
-        double simulationTime;               ///< World simulation time (ms)
+    struct WorldStats {
+        int loadedChunks;
+        int generatedChunks;
+        int totalChunks;
+        int entities;
+        int players;
+        float chunkLoadTime;   // Average chunk load time in ms
+        float chunkGenTime;    // Average chunk generation time in ms
+        size_t memoryUsage;    // Memory used by world data
+        int chunksInQueue;     // Chunks waiting to be loaded/generated
     };
 
     /**
-     * @struct ChunkCoordinate
-     * @brief 2D coordinate for chunk positioning
+     * @typedef WorldEventCallback
+     * @brief Callback for world events
      */
-    struct ChunkCoordinate {
-        int x, z;                            ///< Chunk coordinates
-
-        ChunkCoordinate(int x = 0, int z = 0) : x(x), z(z) {}
-        bool operator==(const ChunkCoordinate& other) const { return x == other.x && z == other.z; }
-        bool operator!=(const ChunkCoordinate& other) const { return !(*this == other); }
-
-        // Calculate distance to another chunk
-        double DistanceTo(const ChunkCoordinate& other) const {
-            int dx = x - other.x;
-            int dz = z - other.z;
-            return std::sqrt(dx * dx + dz * dz);
-        }
-
-        // Manhattan distance
-        int ManhattanDistance(const ChunkCoordinate& other) const {
-            return std::abs(x - other.x) + std::abs(z - other.z);
-        }
-    };
-
-    /**
-     * @struct BlockCoordinate
-     * @brief 3D coordinate for block positioning
-     */
-    struct BlockCoordinate {
-        int x, y, z;                         ///< Block coordinates
-
-        BlockCoordinate(int x = 0, int y = 0, int z = 0) : x(x), y(y), z(z) {}
-        bool operator==(const BlockCoordinate& other) const {
-            return x == other.x && y == other.y && z == other.z;
-        }
-        bool operator!=(const BlockCoordinate& other) const { return !(*this == other); }
-
-        // Convert to chunk coordinate
-        ChunkCoordinate ToChunkCoordinate() const {
-            return ChunkCoordinate(x >> 4, z >> 4); // Assuming 16x16 chunks
-        }
-
-        // Get local chunk position
-        BlockCoordinate GetLocalPosition() const {
-            return BlockCoordinate(x & 15, y, z & 15); // 16x16 chunks
-        }
-    };
+    using WorldEventCallback = std::function<void(const std::string& eventType, const Vec3& position)>;
 
     /**
      * @class World
-     * @brief Main world management class
-     *
-     * The World class is responsible for:
-     * - Managing all chunks in the world
-     * - Coordinating terrain generation
-     * - Handling lighting and weather systems
-     * - Managing world state and persistence
-     * - Providing access to blocks and entities
-     * - Optimizing performance through LOD and culling
+     * @brief Main world coordinator managing chunks, entities, and world state
      */
     class World {
     public:
         /**
          * @brief Constructor
-         * @param name World name
-         * @param seed World seed
-         * @param type World type
+         * @param settings World settings
          */
-        explicit World(const std::string& name,
-                      const std::string& seed = "default",
-                      WorldType type = WorldType::Normal);
+        World(const WorldSettings& settings);
 
         /**
          * @brief Destructor
@@ -198,61 +125,186 @@ namespace VoxelCraft {
         ~World();
 
         /**
-         * @brief Deleted copy constructor
-         */
-        World(const World&) = delete;
-
-        /**
-         * @brief Deleted copy assignment operator
-         */
-        World& operator=(const World&) = delete;
-
-        // World lifecycle
-
-        /**
          * @brief Initialize the world
-         * @return true if successful, false otherwise
+         * @return true if successful
          */
         bool Initialize();
 
         /**
-         * @brief Load world from disk
-         * @param path World save path
-         * @return true if successful, false otherwise
+         * @brief Shutdown the world
          */
-        bool Load(const std::string& path);
+        void Shutdown();
 
         /**
-         * @brief Save world to disk
-         * @param path World save path
-         * @return true if successful, false otherwise
+         * @brief Update world logic
+         * @param deltaTime Time since last update
+         * @param playerPosition Current player position
          */
-        bool Save(const std::string& path);
-
-        /**
-         * @brief Unload the world
-         */
-        void Unload();
-
-        /**
-         * @brief Update world simulation
-         * @param deltaTime Time elapsed since last update
-         */
-        void Update(double deltaTime);
+        void Update(float deltaTime, const Vec3& playerPosition);
 
         /**
          * @brief Render the world
-         * @param frustum View frustum for culling
+         * @param cameraPosition Camera position for culling
          */
-        void Render(const class Frustum& frustum);
+        void Render(const Vec3& cameraPosition);
 
-        // World information
+        // Block operations
 
         /**
-         * @brief Get world information
-         * @return World info
+         * @brief Get block at world position
+         * @param worldX World X coordinate
+         * @param worldY World Y coordinate
+         * @param worldZ World Z coordinate
+         * @return Block type at position
          */
-        const WorldInfo& GetInfo() const { return m_info; }
+        BlockType GetBlock(int worldX, int worldY, int worldZ) const;
+
+        /**
+         * @brief Set block at world position
+         * @param worldX World X coordinate
+         * @param worldY World Y coordinate
+         * @param worldZ World Z coordinate
+         * @param blockType New block type
+         * @param updateNeighbors Whether to update neighboring blocks
+         */
+        void SetBlock(int worldX, int worldY, int worldZ, BlockType blockType, bool updateNeighbors = true);
+
+        /**
+         * @brief Check if block position is valid
+         * @param worldX World X coordinate
+         * @param worldY World Y coordinate
+         * @param worldZ World Z coordinate
+         * @return true if position is valid
+         */
+        bool IsValidBlockPosition(int worldX, int worldY, int worldZ) const;
+
+        // Chunk operations
+
+        /**
+         * @brief Get chunk at chunk position
+         * @param chunkPos Chunk position
+         * @return Chunk pointer or nullptr if not loaded
+         */
+        std::shared_ptr<Chunk> GetChunk(const ChunkPosition& chunkPos) const;
+
+        /**
+         * @brief Get chunk at world position
+         * @param worldX World X coordinate
+         * @param worldZ World Z coordinate
+         * @return Chunk pointer or nullptr if not loaded
+         */
+        std::shared_ptr<Chunk> GetChunkAt(int worldX, int worldZ) const;
+
+        /**
+         * @brief Load chunk at position
+         * @param chunkPos Chunk position
+         * @param generateIfMissing Generate chunk if not found
+         * @return true if chunk is loaded
+         */
+        bool LoadChunk(const ChunkPosition& chunkPos, bool generateIfMissing = true);
+
+        /**
+         * @brief Unload chunk at position
+         * @param chunkPos Chunk position
+         */
+        void UnloadChunk(const ChunkPosition& chunkPos);
+
+        /**
+         * @brief Save chunk to disk
+         * @param chunkPos Chunk position
+         */
+        void SaveChunk(const ChunkPosition& chunkPos);
+
+        /**
+         * @brief Generate chunk terrain
+         * @param chunkPos Chunk position
+         * @return true if generated successfully
+         */
+        bool GenerateChunk(const ChunkPosition& chunkPos);
+
+        // Entity operations
+
+        /**
+         * @brief Add entity to world
+         * @param entity Entity to add
+         */
+        void AddEntity(std::shared_ptr<Entity> entity);
+
+        /**
+         * @brief Remove entity from world
+         * @param entity Entity to remove
+         */
+        void RemoveEntity(std::shared_ptr<Entity> entity);
+
+        /**
+         * @brief Get entities in area
+         * @param center Center position
+         * @param radius Search radius
+         * @return Vector of entities in area
+         */
+        std::vector<std::shared_ptr<Entity>> GetEntitiesInArea(const Vec3& center, float radius) const;
+
+        // World queries
+
+        /**
+         * @brief Get biome at position
+         * @param worldX World X coordinate
+         * @param worldZ World Z coordinate
+         * @return Biome type
+         */
+        BiomeType GetBiomeAt(int worldX, int worldZ) const;
+
+        /**
+         * @brief Get height at position (top non-air block)
+         * @param worldX World X coordinate
+         * @param worldZ World Z coordinate
+         * @return Height value
+         */
+        int GetHeightAt(int worldX, int worldZ) const;
+
+        /**
+         * @brief Check if position is solid (non-air block)
+         * @param worldX World X coordinate
+         * @param worldY World Y coordinate
+         * @param worldZ World Z coordinate
+         * @return true if solid
+         */
+        bool IsSolidBlock(int worldX, int worldY, int worldZ) const;
+
+        /**
+         * @brief Find ground level at position
+         * @param worldX World X coordinate
+         * @param worldZ World Z coordinate
+         * @param startY Starting Y position
+         * @return Ground level Y coordinate
+         */
+        int FindGroundLevel(int worldX, int worldZ, int startY = 255) const;
+
+        /**
+         * @brief Cast ray through world
+         * @param start Ray start position
+         * @param direction Ray direction (normalized)
+         * @param maxDistance Maximum ray distance
+         * @param hitPosition Output hit position
+         * @param hitNormal Output hit normal
+         * @return true if hit something
+         */
+        bool Raycast(const Vec3& start, const Vec3& direction, float maxDistance,
+                    Vec3& hitPosition, Vec3& hitNormal) const;
+
+        // World management
+
+        /**
+         * @brief Get world settings
+         * @return World settings
+         */
+        const WorldSettings& GetSettings() const { return m_settings; }
+
+        /**
+         * @brief Get world statistics
+         * @return World stats
+         */
+        const WorldStats& GetStats() const { return m_stats; }
 
         /**
          * @brief Get world state
@@ -261,415 +313,130 @@ namespace VoxelCraft {
         WorldState GetState() const { return m_state; }
 
         /**
-         * @brief Get world metrics
-         * @return World metrics
+         * @brief Save entire world
+         * @return true if saved successfully
          */
-        const WorldMetrics& GetMetrics() const { return m_metrics; }
+        bool SaveWorld();
 
         /**
-         * @brief Get world name
-         * @return World name
+         * @brief Load world from disk
+         * @return true if loaded successfully
          */
-        const std::string& GetName() const { return m_info.name; }
+        bool LoadWorld();
 
         /**
-         * @brief Get world seed
-         * @return World seed
+         * @brief Register world event callback
+         * @param callback Callback function
+         * @return Callback ID
          */
-        const std::string& GetSeed() const { return m_info.seed; }
-
-        // Chunk management
+        int RegisterEventCallback(WorldEventCallback callback);
 
         /**
-         * @brief Get chunk at coordinates
-         * @param x Chunk X coordinate
-         * @param z Chunk Z coordinate
-         * @return Chunk pointer or nullptr if not loaded
+         * @brief Unregister event callback
+         * @param callbackId Callback ID
          */
-        Chunk* GetChunk(int x, int z);
-
-        /**
-         * @brief Get chunk at coordinates (const version)
-         * @param x Chunk X coordinate
-         * @param z Chunk Z coordinate
-         * @return Chunk pointer or nullptr if not loaded
-         */
-        const Chunk* GetChunk(int x, int z) const;
-
-        /**
-         * @brief Load chunk at coordinates
-         * @param x Chunk X coordinate
-         * @param z Chunk Z coordinate
-         * @param priority Loading priority
-         * @return true if loading started, false otherwise
-         */
-        bool LoadChunk(int x, int z, int priority = 0);
-
-        /**
-         * @brief Unload chunk at coordinates
-         * @param x Chunk X coordinate
-         * @param z Chunk Z coordinate
-         * @return true if unloading started, false otherwise
-         */
-        bool UnloadChunk(int x, int z);
-
-        /**
-         * @brief Check if chunk is loaded
-         * @param x Chunk X coordinate
-         * @param z Chunk Z coordinate
-         * @return true if loaded, false otherwise
-         */
-        bool IsChunkLoaded(int x, int z) const;
-
-        /**
-         * @brief Get loaded chunks count
-         * @return Number of loaded chunks
-         */
-        size_t GetLoadedChunksCount() const;
-
-        // Block access
-
-        /**
-         * @brief Get block at world coordinates
-         * @param x World X coordinate
-         * @param y World Y coordinate
-         * @param z World Z coordinate
-         * @return Block ID or 0 if not loaded
-         */
-        uint32_t GetBlock(int x, int y, int z) const;
-
-        /**
-         * @brief Set block at world coordinates
-         * @param x World X coordinate
-         * @param y World Y coordinate
-         * @param z World Z coordinate
-         * @param blockId Block ID to set
-         * @return true if successful, false otherwise
-         */
-        bool SetBlock(int x, int y, int z, uint32_t blockId);
-
-        /**
-         * @brief Get block at block coordinate
-         * @param coord Block coordinate
-         * @return Block ID or 0 if not loaded
-         */
-        uint32_t GetBlock(const BlockCoordinate& coord) const;
-
-        /**
-         * @brief Set block at block coordinate
-         * @param coord Block coordinate
-         * @param blockId Block ID to set
-         * @return true if successful, false otherwise
-         */
-        bool SetBlock(const BlockCoordinate& coord, uint32_t blockId);
-
-        // Entity management
-
-        /**
-         * @brief Add entity to world
-         * @param entity Entity to add
-         * @return true if successful, false otherwise
-         */
-        bool AddEntity(std::unique_ptr<Entity> entity);
-
-        /**
-         * @brief Remove entity from world
-         * @param entity Entity to remove
-         * @return true if successful, false otherwise
-         */
-        bool RemoveEntity(Entity* entity);
-
-        /**
-         * @brief Get entities in area
-         * @param minX Minimum X coordinate
-         * @param minY Minimum Y coordinate
-         * @param minZ Minimum Z coordinate
-         * @param maxX Maximum X coordinate
-         * @param maxY Maximum Y coordinate
-         * @param maxZ Maximum Z coordinate
-         * @return Vector of entities in area
-         */
-        std::vector<Entity*> GetEntitiesInArea(int minX, int minY, int minZ,
-                                               int maxX, int maxY, int maxZ);
-
-        /**
-         * @brief Get entities at position
-         * @param x X coordinate
-         * @param y Y coordinate
-         * @param z Z coordinate
-         * @return Vector of entities at position
-         */
-        std::vector<Entity*> GetEntitiesAt(int x, int y, int z);
-
-        // World generation
-
-        /**
-         * @brief Generate terrain at coordinates
-         * @param x World X coordinate
-         * @param z World Z coordinate
-         * @param force Force regeneration if already exists
-         * @return true if generation started, false otherwise
-         */
-        bool GenerateTerrain(int x, int z, bool force = false);
-
-        /**
-         * @brief Generate terrain for chunk
-         * @param chunkX Chunk X coordinate
-         * @param chunkZ Chunk Z coordinate
-         * @param force Force regeneration if already exists
-         * @return true if generation started, false otherwise
-         */
-        bool GenerateChunk(int chunkX, int chunkZ, bool force = false);
-
-        // Lighting system
-
-        /**
-         * @brief Update lighting for area
-         * @param x Center X coordinate
-         * @param z Center Z coordinate
-         * @param radius Update radius in chunks
-         */
-        void UpdateLighting(int x, int z, int radius = 8);
-
-        /**
-         * @brief Get light level at position
-         * @param x X coordinate
-         * @param y Y coordinate
-         * @param z Z coordinate
-         * @return Light level (0-15)
-         */
-        uint8_t GetLightLevel(int x, int y, int z) const;
-
-        /**
-         * @brief Set light level at position
-         * @param x X coordinate
-         * @param y Y coordinate
-         * @param z Z coordinate
-         * @param level Light level (0-15)
-         */
-        void SetLightLevel(int x, int y, int z, uint8_t level);
-
-        // Weather system
-
-        /**
-         * @brief Get current weather
-         * @return Current weather type
-         */
-        std::string GetCurrentWeather() const;
-
-        /**
-         * @brief Set weather
-         * @param weather Weather type
-         * @param duration Duration in seconds (0 = permanent)
-         */
-        void SetWeather(const std::string& weather, double duration = 0.0);
-
-        /**
-         * @brief Get weather intensity
-         * @return Weather intensity (0.0 - 1.0)
-         */
-        float GetWeatherIntensity() const;
-
-        // World utilities
-
-        /**
-         * @brief Convert world coordinates to block coordinates
-         * @param x World X coordinate
-         * @param y World Y coordinate
-         * @param z World Z coordinate
-         * @return Block coordinate
-         */
-        BlockCoordinate WorldToBlock(int x, int y, int z) const {
-            return BlockCoordinate(x, y, z);
-        }
-
-        /**
-         * @brief Convert block coordinates to world coordinates
-         * @param coord Block coordinate
-         * @return World coordinates (x, y, z)
-         */
-        std::tuple<int, int, int> BlockToWorld(const BlockCoordinate& coord) const {
-            return {coord.x, coord.y, coord.z};
-        }
-
-        /**
-         * @brief Get height at position
-         * @param x X coordinate
-         * @param z Z coordinate
-         * @return Height at position
-         */
-        int GetHeight(int x, int z) const;
-
-        /**
-         * @brief Get biome at position
-         * @param x X coordinate
-         * @param z Z coordinate
-         * @return Biome name
-         */
-        std::string GetBiome(int x, int z) const;
-
-        /**
-         * @brief Get spawn position
-         * @return Spawn position
-         */
-        BlockCoordinate GetSpawnPosition() const {
-            return BlockCoordinate(m_info.spawnX, m_info.spawnY, m_info.spawnZ);
-        }
-
-        /**
-         * @brief Set spawn position
-         * @param x X coordinate
-         * @param y Y coordinate
-         * @param z Z coordinate
-         */
-        void SetSpawnPosition(int x, int y, int z);
-
-        // World settings
-
-        /**
-         * @brief Get world setting
-         * @param key Setting key
-         * @param defaultValue Default value
-         * @return Setting value
-         */
-        template<typename T>
-        T GetSetting(const std::string& key, const T& defaultValue = T{}) const;
-
-        /**
-         * @brief Set world setting
-         * @param key Setting key
-         * @param value Setting value
-         */
-        template<typename T>
-        void SetSetting(const std::string& key, const T& value);
-
-        // Performance optimization
-
-        /**
-         * @brief Set view distance
-         * @param distance View distance in chunks
-         */
-        void SetViewDistance(int distance);
-
-        /**
-         * @brief Get view distance
-         * @return View distance in chunks
-         */
-        int GetViewDistance() const { return m_viewDistance; }
-
-        /**
-         * @brief Set LOD distance
-         * @param distance LOD distance in chunks
-         */
-        void SetLODDistance(int distance);
-
-        /**
-         * @brief Get LOD distance
-         * @return LOD distance in chunks
-         */
-        int GetLODDistance() const { return m_lodDistance; }
-
-        /**
-         * @brief Enable/disable vertical sync
-         * @param enabled Enable state
-         */
-        void SetVSyncEnabled(bool enabled);
-
-        /**
-         * @brief Check if VSync is enabled
-         * @return true if enabled, false otherwise
-         */
-        bool IsVSyncEnabled() const { return m_vsyncEnabled; }
+        void UnregisterEventCallback(int callbackId);
 
     private:
-        /**
-         * @brief Initialize subsystems
-         * @return true if successful, false otherwise
-         */
-        bool InitializeSubsystems();
+        WorldSettings m_settings;
+        WorldState m_state;
+        WorldStats m_stats;
+
+        // Chunk management
+        mutable std::mutex m_chunkMutex;
+        std::unordered_map<ChunkPosition, std::shared_ptr<Chunk>, ChunkPosition::Hash> m_loadedChunks;
+        std::queue<ChunkPosition> m_chunkLoadQueue;
+        std::queue<ChunkPosition> m_chunkUnloadQueue;
+
+        // Entity management
+        mutable std::mutex m_entityMutex;
+        std::vector<std::shared_ptr<Entity>> m_entities;
+        std::shared_ptr<Player> m_player;
+
+        // World generation
+        std::unique_ptr<WorldGenerator> m_worldGenerator;
+
+        // Event system
+        std::vector<WorldEventCallback> m_eventCallbacks;
+        int m_nextCallbackId;
+
+        // Threading
+        std::atomic<bool> m_worldThreadRunning;
+        std::thread m_worldThread;
+
+        // Internal methods
 
         /**
-         * @brief Update chunk loading/unloading
-         * @param cameraPos Camera position
+         * @brief World update thread function
          */
-        void UpdateChunkLoading(const glm::vec3& cameraPos);
+        void WorldUpdateThread();
 
         /**
-         * @brief Process pending chunk operations
+         * @brief Process chunk loading queue
          */
-        void ProcessPendingOperations();
+        void ProcessChunkQueues();
 
         /**
-         * @brief Update world simulation
-         * @param deltaTime Time elapsed
+         * @brief Update chunk loading based on player position
+         * @param playerPos Player position
          */
-        void UpdateSimulation(double deltaTime);
+        void UpdateChunkLoading(const Vec3& playerPos);
 
         /**
-         * @brief Update world metrics
-         * @param deltaTime Time elapsed
+         * @brief Generate chunks around position
+         * @param centerPos Center position
          */
-        void UpdateMetrics(double deltaTime);
+        void GenerateChunksAround(const Vec3& centerPos);
 
-        // World state
-        WorldInfo m_info;                                    ///< World information
-        WorldState m_state;                                  ///< Current world state
-        WorldMetrics m_metrics;                              ///< Performance metrics
+        /**
+         * @brief Unload distant chunks
+         * @param centerPos Center position
+         */
+        void UnloadDistantChunks(const Vec3& centerPos);
 
-        // Core systems
-        std::unique_ptr<ChunkManager> m_chunkManager;        ///< Chunk management system
-        std::unique_ptr<TerrainGenerator> m_terrainGenerator; ///< Terrain generation system
-        std::unique_ptr<LightingEngine> m_lightingEngine;    ///< Lighting system
-        std::unique_ptr<WeatherSystem> m_weatherSystem;      ///< Weather system
-        std::unique_ptr<WorldRenderer> m_renderer;           ///< World renderer
+        /**
+         * @brief Update world lighting
+         */
+        void UpdateLighting();
 
-        // World data
-        std::unordered_map<ChunkCoordinate, std::unique_ptr<Chunk>> m_chunks;
-        std::vector<std::unique_ptr<Entity>> m_entities;     ///< World entities
-        std::unordered_map<std::string, std::any> m_settings; ///< World settings
+        /**
+         * @brief Update entity positions and handle collisions
+         * @param deltaTime Time since last update
+         */
+        void UpdateEntities(float deltaTime);
 
-        // Performance settings
-        int m_viewDistance;                                  ///< View distance in chunks
-        int m_lodDistance;                                   ///< LOD distance in chunks
-        bool m_vsyncEnabled;                                 ///< VSync enabled flag
+        /**
+         * @brief Check entity collisions with world
+         * @param entity Entity to check
+         */
+        void CheckEntityCollisions(std::shared_ptr<Entity> entity);
 
-        // Threading and synchronization
-        mutable std::shared_mutex m_worldMutex;              ///< World access synchronization
-        mutable std::shared_mutex m_chunkMutex;              ///< Chunk access synchronization
-        mutable std::shared_mutex m_entityMutex;             ///< Entity access synchronization
+        /**
+         * @brief Handle block placement/modification events
+         * @param worldX World X coordinate
+         * @param worldY World Y coordinate
+         * @param worldZ World Z coordinate
+         */
+        void OnBlockChanged(int worldX, int worldY, int worldZ);
 
-        // Pending operations
-        std::deque<std::function<void()>> m_pendingOperations; ///< Pending operations queue
-        mutable std::mutex m_operationsMutex;                ///< Operations synchronization
+        /**
+         * @brief Convert world coordinates to chunk coordinates
+         * @param worldX World X coordinate
+         * @param worldZ World Z coordinate
+         * @param chunkX Output chunk X coordinate
+         * @param chunkZ Output chunk Z coordinate
+         * @param localX Output local X coordinate within chunk
+         * @param localZ Output local Z coordinate within chunk
+         */
+        static void WorldToChunkCoordinates(int worldX, int worldZ,
+                                          int& chunkX, int& chunkZ,
+                                          int& localX, int& localZ);
 
-        // Statistics
-        std::chrono::steady_clock::time_point m_startTime;   ///< World start time
-        double m_lastUpdateTime;                             ///< Last update time
-        double m_lastSaveTime;                               ///< Last save time
-        double m_lastMetricsUpdate;                          ///< Last metrics update
+        /**
+         * @brief Update world statistics
+         */
+        void UpdateStats();
     };
-
-    // Template implementations
-
-    template<typename T>
-    T World::GetSetting(const std::string& key, const T& defaultValue) const {
-        std::shared_lock<std::shared_mutex> lock(m_worldMutex);
-        auto it = m_settings.find(key);
-        if (it != m_settings.end()) {
-            try {
-                return std::any_cast<T>(it->second);
-            } catch (const std::bad_any_cast&) {
-                return defaultValue;
-            }
-        }
-        return defaultValue;
-    }
-
-    template<typename T>
-    void World::SetSetting(const std::string& key, const T& value) {
-        std::unique_lock<std::shared_mutex> lock(m_worldMutex);
-        m_settings[key] = value;
-    }
 
 } // namespace VoxelCraft
 

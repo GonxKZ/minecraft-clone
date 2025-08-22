@@ -46,6 +46,47 @@ namespace VoxelCraft {
     class RenderSystem;
     class ProceduralGenerator;
 
+    // Simple math structures
+    struct Vec2 {
+        float x, y;
+        Vec2(float x = 0, float y = 0) : x(x), y(y) {}
+    };
+
+    struct Vec3 {
+        float x, y, z;
+        Vec3(float x = 0, float y = 0, float z = 0) : x(x), y(y), z(z) {}
+    };
+
+    struct Vec4 {
+        float x, y, z, w;
+        Vec4(float x = 0, float y = 0, float z = 0, float w = 1) : x(x), y(y), z(z), w(w) {}
+    };
+
+    struct Mat4 {
+        float data[16];
+
+        Mat4() {
+            // Identity matrix
+            for (int i = 0; i < 16; ++i) data[i] = (i % 5 == 0) ? 1.0f : 0.0f;
+        }
+
+        static Mat4 Translate(const Vec3& v) {
+            Mat4 m;
+            m.data[12] = v.x;
+            m.data[13] = v.y;
+            m.data[14] = v.z;
+            return m;
+        }
+
+        static Mat4 Scale(const Vec3& v) {
+            Mat4 m;
+            m.data[0] = v.x;
+            m.data[5] = v.y;
+            m.data[10] = v.z;
+            return m;
+        }
+    };
+
     /**
      * @enum EngineState
      * @brief Current state of the game engine
@@ -230,6 +271,18 @@ namespace VoxelCraft {
         void SetGameState(GameState state);
 
         /**
+         * @brief Set renderer instance
+         * @param renderer Renderer to use
+         */
+        void SetRenderer(std::shared_ptr<Renderer> renderer);
+
+        /**
+         * @brief Set input manager instance
+         * @param inputManager Input manager to use
+         */
+        void SetInputManager(std::shared_ptr<InputManager> inputManager);
+
+        /**
          * @brief Get engine configuration
          * @return Engine configuration
          */
@@ -254,6 +307,12 @@ namespace VoxelCraft {
          * @return Renderer instance
          */
         Renderer* GetRenderer() const { return m_renderer.get(); }
+
+        /**
+         * @brief Get input manager subsystem
+         * @return Input manager instance
+         */
+        InputManager* GetInputManager() const { return m_inputManager.get(); }
 
         /**
          * @brief Get physics engine
@@ -498,9 +557,9 @@ namespace VoxelCraft {
         // Engine subsystems
         std::unique_ptr<Window> m_window;                  ///< Main window
         std::unique_ptr<Renderer> m_renderer;              ///< Graphics renderer
+        std::shared_ptr<InputManager> m_inputManager;      ///< Input handling
         std::unique_ptr<PhysicsEngine> m_physicsEngine;    ///< Physics simulation
         std::unique_ptr<AudioEngine> m_audioEngine;        ///< Audio system
-        std::unique_ptr<InputManager> m_inputManager;      ///< Input handling
         std::unique_ptr<ResourceManager> m_resourceManager; ///< Resource management
         std::unique_ptr<World> m_world;                    ///< Game world
         std::unique_ptr<Player> m_player;                  ///< Player instance

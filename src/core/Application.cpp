@@ -13,6 +13,14 @@
 #include "Logger.hpp"
 #include "Config.hpp"
 #include "EventSystem.hpp"
+#include "../window/Window.hpp"
+#include "../graphics/Renderer.hpp"
+#include "../input/InputManager.hpp"
+#include "../world/World.hpp"
+#include "../player/Player.hpp"
+#include "../ui/UIManager.hpp"
+#include "../audio/AudioManager.hpp"
+#include "../graphics/Renderer.hpp"  // Already included, but needed for Camera access
 
 #include <iostream>
 #include <chrono>
@@ -91,6 +99,13 @@ namespace VoxelCraft {
             // Initialize graphics system
             if (!InitializeGraphicsSystem()) {
                 VOXELCRAFT_ERROR("Failed to initialize graphics system");
+                m_state = ApplicationState::Error;
+                return false;
+            }
+
+            // Initialize input system
+            if (!InitializeInputSystem()) {
+                VOXELCRAFT_ERROR("Failed to initialize input system");
                 m_state = ApplicationState::Error;
                 return false;
             }
@@ -283,19 +298,135 @@ namespace VoxelCraft {
         VOXELCRAFT_INFO("Initializing graphics system");
 
         try {
-            // Create window - Using stub for now
-            // m_window = std::make_unique<Window>();
+            // Create window with properties from config
+            WindowProperties windowProps;
+            windowProps.title = "VoxelCraft - Minecraft Clone";
+            windowProps.width = m_config.Get("graphics.width", 1280);
+            windowProps.height = m_config.Get("graphics.height", 720);
+            windowProps.mode = m_config.Get("graphics.fullscreen", false) ? WindowMode::FULLSCREEN : WindowMode::WINDOWED;
+            windowProps.vsync = m_config.Get("engine.vsync", true);
 
-            // Create renderer - Using stub for now
-            // m_renderer = std::make_unique<Renderer>();
+            m_window = std::make_unique<Window>(windowProps);
 
-            VOXELCRAFT_INFO("Graphics system initialized (using stubs)");
+            if (!m_window->Initialize()) {
+                VOXELCRAFT_ERROR("Failed to initialize window");
+                return false;
+            }
+
+            // Set window event callbacks
+            WindowEventCallbacks callbacks;
+            callbacks.keyCallback = [this](int key, int scancode, int action, int mods) {
+                // Handle input events
+                HandleKeyEvent(key, scancode, action, mods);
+            };
+            callbacks.mousePosCallback = [this](double xpos, double ypos) {
+                HandleMousePosEvent(xpos, ypos);
+            };
+            callbacks.mouseButtonCallback = [this](int button, int action, int mods) {
+                HandleMouseButtonEvent(button, action, mods);
+            };
+            callbacks.resizeCallback = [this](int width, int height) {
+                HandleResizeEvent(width, height);
+            };
+            callbacks.closeCallback = [this]() {
+                RequestShutdown();
+            };
+
+            m_window->SetEventCallbacks(callbacks);
+
+            // Create renderer
+            m_renderer = std::make_shared<Renderer>(m_window);
+            if (!m_renderer->Initialize()) {
+                VOXELCRAFT_ERROR("Failed to initialize renderer");
+                return false;
+            }
+
+            // Pass renderer to engine
+            if (m_engine) {
+                m_engine->SetRenderer(m_renderer);
+            }
+
+            VOXELCRAFT_INFO("Graphics system initialized successfully");
             return true;
 
         } catch (const std::exception& e) {
             VOXELCRAFT_ERROR("Failed to initialize graphics system: {}", e.what());
             return false;
         }
+    }
+
+    bool Application::InitializeInputSystem() {
+        try {
+            VOXELCRAFT_INFO("Initializing input system");
+
+            // Create input manager
+            m_inputManager = std::make_shared<InputManager>(m_window, m_config);
+            if (!m_inputManager->Initialize()) {
+                VOXELCRAFT_ERROR("Failed to initialize input manager");
+                return false;
+            }
+
+            // Pass input manager to engine
+            if (m_engine) {
+                m_engine->SetInputManager(m_inputManager);
+            }
+
+            // Connect input manager with renderer for camera control
+            if (m_renderer && m_inputManager) {
+                m_inputManager->SetCamera(m_renderer->GetCamera());
+            }
+
+            VOXELCRAFT_INFO("Input system initialized successfully");
+            return true;
+
+        } catch (const std::exception& e) {
+            VOXELCRAFT_ERROR("Failed to initialize input system: {}", e.what());
+            return false;
+        }
+    }
+
+    // Event handling methods
+    void Application::HandleKeyEvent(int key, int scancode, int action, int mods) {
+        if (m_inputManager) {
+            m_inputManager->ProcessKeyEvent(
+                InputManager::GLFWKeyToKeyCode(key),
+                scancode,
+                InputManager::GLFWActionToInputAction(action),
+                mods
+            );
+        }
+
+        // Handle UI input
+        if (m_uiManager) {
+            m_uiManager->HandleInput(key, action);
+        }
+
+        VOXELCRAFT_TRACE("Key event: key={}, scancode={}, action={}, mods={}", key, scancode, action, mods);
+    }
+
+    void Application::HandleMousePosEvent(double xpos, double ypos) {
+        if (m_inputManager) {
+            m_inputManager->ProcessMouseMoveEvent(xpos, ypos);
+        }
+        VOXELCRAFT_TRACE("Mouse position: x={}, y={}", xpos, ypos);
+    }
+
+    void Application::HandleMouseButtonEvent(int button, int action, int mods) {
+        if (m_inputManager) {
+            m_inputManager->ProcessMouseButtonEvent(
+                InputManager::GLFWMouseButtonToMouseButton(button),
+                InputManager::GLFWActionToInputAction(action),
+                mods
+            );
+        }
+        VOXELCRAFT_TRACE("Mouse button: button={}, action={}", button, action);
+    }
+
+    void Application::HandleResizeEvent(int width, int height) {
+        if (m_inputManager) {
+            m_inputManager->ProcessWindowResizeEvent(width, height);
+        }
+        VOXELCRAFT_INFO("Window resized to {}x{}", width, height);
     }
 
     bool Application::InitializeGameSystems() {
@@ -315,11 +446,56 @@ namespace VoxelCraft {
                 return false;
             }
 
-            // Create world - Using stub for now
-            // m_world = std::make_unique<World>();
+            // Create world with default settings
+            WorldSettings worldSettings;
+            worldSettings.worldName = "Minecraft Clone World";
+            worldSettings.worldType = WorldType::INFINITE;
+            worldSettings.renderDistance = 8;
+            worldSettings.simulationDistance = 6;
+            m_world = std::make_unique<World>(worldSettings);
 
-            // Create player - Using stub for now
-            // m_player = std::make_unique<Player>();
+            if (!m_world->Initialize()) {
+                VOXELCRAFT_ERROR("Failed to initialize world");
+                return false;
+            }
+
+            // Create player
+            m_player = std::make_unique<Player>("Player");
+
+            if (!m_player->Initialize()) {
+                VOXELCRAFT_ERROR("Failed to initialize player");
+                return false;
+            }
+
+            // Set player position in world
+            Vec3 playerStartPos(0.0f, 70.0f, 0.0f); // Start above ground
+            m_player->Teleport(playerStartPos);
+
+            // Connect player with world
+            m_player->SetWorld(m_world);
+
+            // Create UI manager
+            m_uiManager = std::make_unique<UIManagerSimple>(m_window, m_config);
+            if (!m_uiManager->Initialize()) {
+                VOXELCRAFT_ERROR("Failed to initialize UI manager");
+                return false;
+            }
+
+            // Connect UI manager with player
+            m_uiManager->SetPlayer(m_player);
+
+            // Create audio manager
+            m_audioManager = std::make_unique<AudioManager>(m_config);
+            if (!m_audioManager->Initialize()) {
+                VOXELCRAFT_WARN("Failed to initialize audio manager - continuing without audio");
+            }
+
+            // Get camera from renderer
+            if (m_renderer) {
+                // The renderer should have a camera, but we need to access it
+                // For now, we'll create a camera reference
+                // m_camera = m_renderer->GetCamera();
+            }
 
             VOXELCRAFT_INFO("Game systems initialized successfully");
             return true;
@@ -428,20 +604,54 @@ namespace VoxelCraft {
             m_engine->Update(deltaTime);
         }
 
-        // Update world - Using stub
-        // if (m_world) {
-        //     m_world->Update(deltaTime);
-        // }
+        // Update input system
+        if (m_inputManager) {
+            m_inputManager->Update(deltaTime);
+        }
 
-        // Update player - Using stub
-        // if (m_player) {
-        //     m_player->Update(deltaTime);
-        // }
+        // Update world with player position for chunk loading
+        if (m_world && m_player) {
+            Vec3 playerPos = m_player->GetPosition();
+            m_world->Update(deltaTime, playerPos);
+        } else if (m_world) {
+            // Default position if no player
+            Vec3 defaultPos(0, 2, 0);
+            m_world->Update(deltaTime, defaultPos);
+        }
 
-        // Update UI - Using stub
-        // if (m_uiManager) {
-        //     m_uiManager->Update(deltaTime);
-        // }
+        // Update player with input
+        if (m_player && m_inputManager) {
+            // Process player input
+            PlayerInput input;
+            auto& inputState = m_inputManager->GetInputState();
+
+            // Map input state to player input
+            input.moveForward = inputState.pressedKeys.find(KeyCode::W) != inputState.pressedKeys.end() ? 1.0f : 0.0f;
+            input.moveRight = inputState.pressedKeys.find(KeyCode::D) != inputState.pressedKeys.end() ? 1.0f : 0.0f;
+            if (inputState.pressedKeys.find(KeyCode::S) != inputState.pressedKeys.end()) {
+                input.moveForward = -1.0f;
+            }
+            if (inputState.pressedKeys.find(KeyCode::A) != inputState.pressedKeys.end()) {
+                input.moveRight = -1.0f;
+            }
+
+            input.jumpPressed = inputState.pressedKeys.find(KeyCode::SPACE) != inputState.pressedKeys.end();
+            input.sneakPressed = inputState.pressedKeys.find(KeyCode::LEFT_SHIFT) != inputState.pressedKeys.end();
+            input.sprintPressed = inputState.pressedKeys.find(KeyCode::LEFT_CONTROL) != inputState.pressedKeys.end();
+
+            m_player->HandleInput(input, deltaTime);
+            m_player->Update(deltaTime);
+        }
+
+        // Update UI
+        if (m_uiManager) {
+            m_uiManager->Update(deltaTime);
+        }
+
+        // Update audio
+        if (m_audioManager) {
+            m_audioManager->Update(deltaTime);
+        }
 
         // Update network - Using stub
         // if (m_networkManager) {
@@ -460,42 +670,58 @@ namespace VoxelCraft {
     }
 
     void Application::Render() {
-        // Begin frame - Using stub
-        // if (m_renderer) {
-        //     m_renderer->BeginFrame();
-        // }
+        // Begin frame
+        if (m_renderer) {
+            m_renderer->BeginFrame();
+        }
 
-        // Render world - Using stub
-        // if (m_world) {
-        //     m_world->Render();
-        // }
+        // Clear screen
+        if (m_renderer) {
+            Vec4 clearColor(0.2f, 0.3f, 0.8f, 1.0f);
+            m_renderer->Clear(clearColor);
+        }
 
-        // Render UI - Using stub
-        // if (m_uiManager) {
-        //     m_uiManager->Render();
-        // }
+        // Render world with camera position
+        if (m_world && m_camera) {
+            Vec3 cameraPos = m_camera->position;
+            m_world->Render(cameraPos);
+        } else if (m_world) {
+            // Default camera position if no camera
+            Vec3 defaultPos(0, 2, 5);
+            m_world->Render(defaultPos);
+        }
 
-        // Render engine
+        // Render engine (includes camera updates and test rendering)
         if (m_engine) {
             m_engine->Render();
         }
 
-        // End frame - Using stub
-        // if (m_renderer) {
-        //     m_renderer->EndFrame();
-        // }
+        // Render UI
+        if (m_uiManager) {
+            m_uiManager->Render();
+        }
 
-        // Present frame - Using stub
-        // if (m_window) {
-        //     m_window->Present();
-        // }
+        // End frame
+        if (m_renderer) {
+            m_renderer->EndFrame();
+        }
+
+        // Present frame
+        if (m_window) {
+            m_window->Present();
+        }
     }
 
     void Application::HandleEvents() {
-        // Process window events - Using stub
-        // if (m_window) {
-        //     m_window->ProcessEvents();
-        // }
+        // Process window events
+        if (m_window) {
+            m_window->Update(); // This processes events and input
+        }
+
+        // Check if window should close
+        if (m_window && m_window->ShouldClose()) {
+            RequestShutdown();
+        }
 
         // Process input events - Engine handles this
         if (m_engine) {
