@@ -1,0 +1,235 @@
+# =============================================================================
+# VoxelCraft Engine Configuration File
+# =============================================================================
+# Version: 1.0.0
+# Description: Main configuration file for VoxelCraft engine
+# =============================================================================
+
+[engine]
+# Engine Core Settings
+target_fps = 60                    # Target frames per second
+vsync = true                       # Vertical synchronization
+max_frame_time = 0.1              # Maximum frame time in seconds
+fixed_timestep = 0.0167           # Fixed physics timestep (60Hz)
+multisampling = 4                 # MSAA level (0, 2, 4, 8, 16)
+enable_profiling = false          # Enable performance profiling
+debug_mode = false                # Enable debug features
+log_level = "info"                # Log level (trace, debug, info, warn, error)
+
+[graphics]
+# Graphics Settings
+render_distance = 16              # Render distance in chunks
+fov = 90                          # Field of view in degrees
+brightness = 1.0                  # Global brightness multiplier
+gamma = 2.2                       # Gamma correction value
+shadow_resolution = 2048          # Shadow map resolution
+shadow_distance = 100.0           # Shadow rendering distance
+post_processing = true            # Enable post-processing effects
+anti_aliasing = true              # Enable anti-aliasing
+motion_blur = true                # Enable motion blur
+bloom = true                      # Enable bloom effect
+ssao = true                       # Enable screen space ambient occlusion
+ssr = false                       # Enable screen space reflections
+pbr = true                        # Enable physically based rendering
+hdr = true                        # Enable high dynamic range
+tonemapping = "filmic"            # Tonemapping operator (linear, reinhard, filmic, aces)
+texture_filtering = "anisotropic"  # Texture filtering (nearest, linear, anisotropic)
+anisotropy_level = 16             # Anisotropic filtering level
+
+[world]
+# World Generation Settings
+seed = 12345                      # World seed for procedural generation
+generator = "advanced"            # Terrain generator type (basic, advanced, custom)
+max_height = 256                  # Maximum world height
+min_height = 0                    # Minimum world height
+water_level = 64                  # Sea level height
+cave_density = 0.3                # Cave generation density
+tree_density = 0.8                # Tree generation density
+biome_size = 4                    # Biome size multiplier
+structure_density = 0.5           # Structure generation density
+ore_density = 1.0                 # Ore generation density
+
+[physics]
+# Physics Settings
+gravity = -9.81                   # Gravity acceleration (m/s²)
+air_density = 1.225               # Air density for aerodynamics
+terminal_velocity = -50.0         # Terminal velocity (m/s)
+jump_force = 8.0                  # Jump force multiplier
+walk_speed = 4.3                  # Walking speed (m/s)
+run_speed = 6.5                   # Running speed (m/s)
+swim_speed = 2.5                  # Swimming speed (m/s)
+fly_speed = 10.0                  # Flying speed (m/s)
+collision_tolerance = 0.001       # Collision detection tolerance
+max_physics_steps = 10            # Maximum physics substeps per frame
+enable_ragdoll = false            # Enable ragdoll physics
+enable_fluid_simulation = true    # Enable fluid physics
+
+[blocks]
+# Block System Settings
+block_size = 1.0                  # Size of each block in meters
+max_block_types = 65536           # Maximum number of block types
+texture_atlas_size = 2048         # Texture atlas size (pixels)
+texture_resolution = 16           # Block texture resolution (pixels)
+enable_block_lighting = true      # Enable per-block lighting
+enable_block_particles = true     # Enable block break particles
+block_update_distance = 32        # Distance for block updates
+max_block_updates_per_frame = 100 # Maximum block updates per frame
+
+[entities]
+# Entity System Settings
+max_entities = 10000              # Maximum number of entities
+entity_update_distance = 128      # Distance for entity updates
+entity_render_distance = 96       # Distance for entity rendering
+enable_entity_culling = true      # Enable entity frustum culling
+enable_entity_lod = true          # Enable entity level of detail
+entity_pool_size = 1024           # Entity memory pool size
+component_pool_size = 8192        # Component memory pool size
+
+[player]
+# Player Settings
+player_height = 1.8               # Player height in meters
+player_width = 0.6                # Player width in meters
+player_eye_height = 1.62          # Player eye height in meters
+reach_distance = 5.0              # Player reach distance
+inventory_size = 36               # Player inventory size
+hotbar_size = 9                  # Hotbar size
+enable_sprint = true              # Enable sprinting
+enable_crouch = true              # Enable crouching
+enable_fly = false                # Enable flying (creative mode)
+
+[ai]
+# AI System Settings
+enable_ai = true                  # Enable AI system
+max_ai_entities = 500            # Maximum number of AI entities
+pathfinding_distance = 32         # Maximum pathfinding distance
+ai_update_distance = 64           # Distance for AI updates
+ai_tick_rate = 20                 # AI update rate (ticks per second)
+enable_pathfinding = true         # Enable A* pathfinding
+enable_behavior_trees = true      # Enable behavior tree AI
+enable_animal_ai = true           # Enable animal AI
+enable_mob_ai = true              # Enable mob AI
+
+[network]
+# Network Settings
+enable_networking = true          # Enable networking
+max_players = 100                 # Maximum number of players
+server_port = 25565               # Server port
+client_timeout = 30               # Client timeout in seconds
+connection_timeout = 10           # Connection timeout in seconds
+max_packet_size = 1048576         # Maximum packet size (1MB)
+compression_threshold = 1024      # Compression threshold (bytes)
+enable_compression = true         # Enable packet compression
+enable_encryption = true          # Enable packet encryption
+tick_rate = 20                    # Network tick rate
+interpolation_delay = 100         # Client-side interpolation delay (ms)
+
+[audio]
+# Audio Settings
+enable_audio = true               # Enable audio system
+master_volume = 1.0               # Master volume (0.0 - 1.0)
+music_volume = 0.7                # Music volume (0.0 - 1.0)
+sfx_volume = 0.8                  # Sound effects volume (0.0 - 1.0)
+voice_volume = 1.0                # Voice volume (0.0 - 1.0)
+audio_distance = 64               # Maximum audio distance
+enable_doppler = true             # Enable doppler effect
+enable_reverb = true              # Enable environmental reverb
+enable_occlusion = true           # Enable sound occlusion
+enable_spatial_audio = true       # Enable 3D spatial audio
+audio_pool_size = 256             # Audio source pool size
+
+[ui]
+# UI Settings
+enable_ui = true                  # Enable UI system
+ui_scale = 1.0                    # UI scale factor
+font_size = 16                    # Default font size
+enable_hud = true                 # Enable HUD
+enable_inventory = true           # Enable inventory system
+enable_chat = true                # Enable chat system
+enable_console = true             # Enable developer console
+chat_history_size = 100           # Chat history size
+console_history_size = 1000       # Console history size
+
+[save]
+# Save System Settings
+enable_auto_save = true           # Enable automatic saving
+auto_save_interval = 300          # Auto-save interval (seconds)
+max_save_backups = 5              # Maximum number of backup saves
+save_compression = true           # Enable save compression
+save_format = "binary"            # Save format (binary, json, xml)
+save_directory = "saves"          # Save directory name
+enable_cloud_save = false         # Enable cloud saving
+backup_on_load = true             # Create backup when loading save
+
+[debug]
+# Debug Settings
+enable_debug_renderer = false     # Enable debug rendering
+show_fps = true                   # Show FPS counter
+show_frame_time = false           # Show frame time graph
+show_memory_usage = false         # Show memory usage
+show_chunk_info = false           # Show chunk information
+show_entity_info = false          # Show entity information
+show_network_info = false         # Show network statistics
+wireframe_mode = false            # Enable wireframe rendering
+collision_debug = false           # Show collision shapes
+physics_debug = false             # Show physics debug info
+
+[profiling]
+# Profiling Settings
+enable_profiler = false           # Enable performance profiler
+profile_cpu = true                # Profile CPU performance
+profile_gpu = true                # Profile GPU performance
+profile_memory = true             # Profile memory usage
+profile_network = false           # Profile network performance
+profile_file = "profile.json"     # Profile output file
+profile_max_frames = 1000         # Maximum frames to profile
+
+[controls]
+# Control Settings
+mouse_sensitivity = 0.5           # Mouse sensitivity
+invert_mouse_y = false            # Invert mouse Y axis
+gamepad_enabled = true            # Enable gamepad support
+gamepad_sensitivity = 1.0         # Gamepad sensitivity
+gamepad_vibration = true          # Enable gamepad vibration
+keyboard_layout = "qwerty"        # Keyboard layout (qwerty, azerty, dvorak)
+
+[accessibility]
+# Accessibility Settings
+high_contrast = false             # Enable high contrast mode
+large_text = false                # Enable large text mode
+screen_reader = false             # Enable screen reader support
+color_blind_mode = "none"         # Color blind mode (none, protanopia, deuteranopia, tritanopia)
+motion_sickness_mode = false      # Enable motion sickness mode
+subtitles = false                 # Enable subtitles for audio
+tutorial_mode = true              # Enable tutorial mode
+
+[performance]
+# Performance Settings
+thread_count = 0                  # Number of threads (0 = auto-detect)
+enable_multithreading = true      # Enable multithreading
+enable_simd = true                # Enable SIMD optimizations
+enable_gpu_acceleration = true    # Enable GPU acceleration
+texture_streaming = true          # Enable texture streaming
+mesh_streaming = true             # Enable mesh streaming
+entity_streaming = true           # Enable entity streaming
+memory_pool_size = 134217728      # Memory pool size (128MB)
+garbage_collection_interval = 60  # Garbage collection interval (seconds)
+
+[logging]
+# Logging Settings
+log_to_file = true                # Enable file logging
+log_to_console = true             # Enable console logging
+log_directory = "logs"            # Log directory
+max_log_files = 10                # Maximum number of log files
+max_log_size = 10485760           # Maximum log file size (10MB)
+log_format = "timestamp [level] message"  # Log message format
+enable_log_colors = true          # Enable colored console output
+
+[compatibility]
+# Compatibility Settings
+enable_legacy_support = false     # Enable legacy format support
+enable_mod_support = true         # Enable mod support
+enable_plugin_support = true      # Enable plugin support
+script_engine = "lua"             # Script engine (lua, python, none)
+max_mods = 50                     # Maximum number of mods
+max_plugins = 20                  # Maximum number of plugins
+enable_api_access = true          # Enable API access for mods
