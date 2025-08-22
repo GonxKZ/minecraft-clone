@@ -31,7 +31,7 @@ namespace VoxelCraft {
     class Renderer;
     class World;
     class Player;
-    class UIManagerSimple;
+    class UIManager;
     class AudioManager;
     class NetworkManager;
     class SaveManager;
@@ -365,7 +365,7 @@ namespace VoxelCraft {
         std::unique_ptr<World> m_world;                       ///< Game world
         std::unique_ptr<Player> m_player;                     ///< Player instance
         std::shared_ptr<Camera> m_camera;                     ///< Camera instance
-        std::unique_ptr<UIManagerSimple> m_uiManager;               ///< UI management system
+        std::unique_ptr<UIManager> m_uiManager;               ///< UI management system
         std::unique_ptr<AudioManager> m_audioManager;         ///< Audio management system
         std::unique_ptr<NetworkManager> m_networkManager;     ///< Network management system
         std::unique_ptr<SaveManager> m_saveManager;           ///< Save management system

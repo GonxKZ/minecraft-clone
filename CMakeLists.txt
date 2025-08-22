@@ -125,6 +125,8 @@ set(VOXELCRAFT_CORE_SOURCES
     src/core/EventSystem.cpp
     src/core/MemoryManager.cpp
     src/core/ResourceManager.cpp
+    src/core/GameConstants.hpp
+    src/core/PhysicsUtils.hpp
     src/graphics/Renderer.cpp
     src/input/InputManager.cpp
     src/window/Window.cpp
@@ -142,6 +144,12 @@ set(VOXELCRAFT_CORE_SOURCES
     src/entities/EntityManager.cpp
     src/entities/System.cpp
     src/entities/TransformComponent.cpp
+    src/entities/RenderComponent.hpp
+    src/entities/RenderComponent.cpp
+    src/tools/Tool.hpp
+    src/tools/Tool.cpp
+    src/crafting/CraftingRecipe.hpp
+    src/crafting/CraftingTable.hpp
 )
 
 # All core systems are now implemented - no stubs needed
