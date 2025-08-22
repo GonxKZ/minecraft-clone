@@ -590,9 +590,6 @@ Usa la plantilla de issues para reportar bugs:
 
 ---
 
-## 📜 **Licencia**
-
-Este proyecto está bajo la Licencia MIT - ver el archivo [LICENSE](LICENSE) para más detalles.
 
 ### 🔒 **Consideraciones Legales**
 - Este proyecto es un clone educativo de Minecraft
@@ -607,15 +604,6 @@ Este proyecto está bajo la Licencia MIT - ver el archivo [LICENSE](LICENSE) par
 - **Comunidad Open Source**: Por las librerías y herramientas utilizadas
 - **Desarrolladores de Minecraft**: Por la inspiración y referencias técnicas
 - **Contribuidores**: Por su tiempo y dedicación al proyecto
-
----
-
-## 📞 **Contacto**
-
-- **Website**: [voxelcraft.dev](https://voxelcraft.dev)
-- **Discord**: [discord.gg/voxelcraft](https://discord.gg/voxelcraft)
-- **Twitter**: [@VoxelCraftDev](https://twitter.com/VoxelCraftDev)
-- **Email**: dev@voxelcraft.dev
 
 ---
 
