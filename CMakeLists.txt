@@ -148,6 +148,30 @@ set(VOXELCRAFT_CORE_SOURCES
     src/entities/RenderComponent.cpp
     src/tools/Tool.hpp
     src/tools/Tool.cpp
+    src/tools/ItemGenerator.hpp
+    src/tools/ItemGenerator.cpp
+    src/blocks/BlockGenerator.hpp
+    src/blocks/BlockGenerator.cpp
+    src/world/MobGenerator.hpp
+    src/world/MobGenerator.cpp
+    src/core/SkinGenerator.hpp
+    src/core/SkinGenerator.cpp
+    src/core/SoundGenerator.hpp
+    src/core/SoundGenerator.cpp
+    src/core/ThreadPool.hpp
+    src/core/ThreadPool.cpp
+    src/core/GameStateSync.hpp
+    src/core/GameStateSync.cpp
+    src/network/Server.hpp
+    src/network/Server.cpp
+    src/network/Client.hpp
+    src/network/Client.cpp
+    src/graphics/Camera.hpp
+    src/graphics/Camera.cpp
+    src/ui/UIManager.hpp
+    src/ui/UIManager.cpp
+    src/core/Profiler.hpp
+    src/core/Profiler.cpp
     src/crafting/CraftingRecipe.hpp
     src/crafting/CraftingTable.hpp
 )
