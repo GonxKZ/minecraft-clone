@@ -1,0 +1,37 @@
+# =============================================================================
+# VoxelCraft Engine Configuration File (Local Override)
+# =============================================================================
+# Version: 1.0.0
+# Description: Local configuration file that overrides defaults
+# =============================================================================
+
+[engine]
+# Override engine settings for development
+debug_mode = true
+log_level = "debug"
+enable_profiling = true
+target_fps = 144
+
+[graphics]
+# Development graphics settings
+render_distance = 8
+shadow_resolution = 1024
+post_processing = false
+bloom = false
+ssao = false
+ssr = false
+
+[debug]
+# Enable debug features
+enable_debug_renderer = true
+show_fps = true
+show_frame_time = true
+show_memory_usage = true
+show_chunk_info = true
+wireframe_mode = false
+
+[performance]
+# Development performance settings
+thread_count = 4
+enable_multithreading = true
+memory_pool_size = 67108864  # 64MB for development

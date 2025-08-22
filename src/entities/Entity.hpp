@@ -1,12 +1,10 @@
 /**
  * @file Entity.hpp
- * @brief VoxelCraft ECS - Entity System Core
+ * @brief VoxelCraft Entity System - Entity Header
  * @version 1.0.0
  * @author VoxelCraft Team
  *
- * This file defines the Entity class and core ECS architecture for VoxelCraft.
- * The Entity Component System provides a flexible and performant way to manage
- * game objects and their behaviors.
+ * This file defines the Entity class for the VoxelCraft ECS system.
  */
 
 #ifndef VOXELCRAFT_ENTITIES_ENTITY_HPP
@@ -14,17 +12,14 @@
 
 #include <memory>
 #include <string>
-#include <vector>
 #include <unordered_map>
-#include <typeinfo>
-#include <functional>
-#include <mutex>
+#include <vector>
 #include <atomic>
-#include <optional>
-
-#include "Component.hpp"
 
 namespace VoxelCraft {
+
+    class Component;
+    class EntityManager;
 
     /**
      * @typedef EntityID
@@ -44,43 +39,21 @@ namespace VoxelCraft {
     };
 
     /**
-     * @struct EntityMetadata
-     * @brief Metadata associated with an entity
-     */
-    struct EntityMetadata {
-        std::string name;                    ///< Human-readable name
-        std::string type;                    ///< Entity type identifier
-        std::string prefab;                  ///< Prefab this entity was created from
-        std::unordered_map<std::string, std::string> tags; ///< Entity tags
-        std::unordered_map<std::string, std::any> properties; ///< Custom properties
-        double creationTime;                 ///< Time when entity was created
-        double lastUpdateTime;               ///< Last time entity was updated
-    };
-
-    /**
      * @class Entity
-     * @brief Core entity class in the ECS architecture
+     * @brief Represents a game entity in the ECS system
      *
-     * An Entity represents any game object that can have components attached to it.
-     * Entities themselves contain no logic - all behavior is provided by components
-     * and processed by systems.
-     *
-     * Features:
-     * - Unique identification
-     * - Dynamic component attachment/detachment
-     * - Metadata and properties
-     * - State management
-     * - Serialization support
-     * - Event system integration
+     * An entity is a container for components that define its behavior
+     * and properties. Entities have a unique ID and can be in different states.
      */
     class Entity {
     public:
         /**
          * @brief Constructor
          * @param id Unique entity ID
-         * @param name Optional entity name
+         * @param name Entity name
+         * @param manager Entity manager that owns this entity
          */
-        explicit Entity(EntityID id, const std::string& name = "");
+        Entity(EntityID id, const std::string& name, EntityManager* manager);
 
         /**
          * @brief Destructor
@@ -98,19 +71,65 @@ namespace VoxelCraft {
         Entity& operator=(const Entity&) = delete;
 
         /**
-         * @brief Move constructor
+         * @brief Update the entity
+         * @param deltaTime Time elapsed since last update
          */
-        Entity(Entity&& other) noexcept;
+        void Update(double deltaTime);
 
         /**
-         * @brief Move assignment operator
+         * @brief Render the entity
          */
-        Entity& operator=(Entity&& other) noexcept;
-
-        // Entity identification
+        void Render();
 
         /**
-         * @brief Get entity unique ID
+         * @brief Add a component to this entity
+         * @tparam T Component type
+         * @tparam Args Component constructor arguments
+         * @param args Constructor arguments
+         * @return Pointer to the created component
+         */
+        template<typename T, typename... Args>
+        T* AddComponent(Args&&... args);
+
+        /**
+         * @brief Get a component from this entity
+         * @tparam T Component type
+         * @return Pointer to the component or nullptr if not found
+         */
+        template<typename T>
+        T* GetComponent();
+
+        /**
+         * @brief Get a component from this entity (const version)
+         * @tparam T Component type
+         * @return Pointer to the component or nullptr if not found
+         */
+        template<typename T>
+        const T* GetComponent() const;
+
+        /**
+         * @brief Check if entity has a component
+         * @tparam T Component type
+         * @return true if entity has the component, false otherwise
+         */
+        template<typename T>
+        bool HasComponent() const;
+
+        /**
+         * @brief Remove a component from this entity
+         * @tparam T Component type
+         * @return true if component was removed, false if not found
+         */
+        template<typename T>
+        bool RemoveComponent();
+
+        /**
+         * @brief Destroy this entity
+         */
+        void Destroy();
+
+        /**
+         * @brief Get entity ID
          * @return Entity ID
          */
         EntityID GetID() const { return m_id; }
@@ -119,18 +138,16 @@ namespace VoxelCraft {
          * @brief Get entity name
          * @return Entity name
          */
-        const std::string& GetName() const { return m_metadata.name; }
+        const std::string& GetName() const { return m_name; }
 
         /**
          * @brief Set entity name
          * @param name New entity name
          */
-        void SetName(const std::string& name) { m_metadata.name = name; }
-
-        // Entity state
+        void SetName(const std::string& name) { m_name = name; }
 
         /**
-         * @brief Get current entity state
+         * @brief Get entity state
          * @return Entity state
          */
         EntityState GetState() const { return m_state; }
@@ -139,7 +156,7 @@ namespace VoxelCraft {
          * @brief Set entity state
          * @param state New entity state
          */
-        void SetState(EntityState state);
+        void SetState(EntityState state) { m_state = state; }
 
         /**
          * @brief Check if entity is active
@@ -148,356 +165,52 @@ namespace VoxelCraft {
         bool IsActive() const { return m_state == EntityState::Active; }
 
         /**
-         * @brief Activate entity
+         * @brief Check if entity is marked for destruction
+         * @return true if pending destruction, false otherwise
          */
-        void Activate();
+        bool IsPendingDestroy() const { return m_state == EntityState::PendingDestroy; }
 
         /**
-         * @brief Deactivate entity
+         * @brief Get number of components
+         * @return Number of components attached to this entity
          */
-        void Deactivate();
+        size_t GetComponentCount() const { return m_components.size(); }
 
         /**
-         * @brief Mark entity for destruction
-         */
-        void Destroy();
-
-        // Component management
-
-        /**
-         * @brief Add component to entity
-         * @tparam T Component type
-         * @tparam Args Constructor argument types
-         * @param args Constructor arguments
-         * @return Pointer to created component
-         */
-        template<typename T, typename... Args>
-        T* AddComponent(Args&&... args);
-
-        /**
-         * @brief Get component from entity
-         * @tparam T Component type
-         * @return Pointer to component or nullptr if not found
-         */
-        template<typename T>
-        T* GetComponent();
-
-        /**
-         * @brief Get component from entity (const version)
-         * @tparam T Component type
-         * @return Pointer to component or nullptr if not found
-         */
-        template<typename T>
-        const T* GetComponent() const;
-
-        /**
-         * @brief Remove component from entity
-         * @tparam T Component type
-         * @return true if component was removed, false if not found
-         */
-        template<typename T>
-        bool RemoveComponent();
-
-        /**
-         * @brief Check if entity has component
-         * @tparam T Component type
-         * @return true if has component, false otherwise
-         */
-        template<typename T>
-        bool HasComponent() const;
-
-        /**
-         * @brief Get all components of entity
+         * @brief Get all components
          * @return Vector of component pointers
          */
         std::vector<Component*> GetComponents();
 
         /**
-         * @brief Get all components of entity (const version)
-         * @return Vector of component pointers
+         * @brief Get entity manager
+         * @return Entity manager pointer
          */
-        std::vector<const Component*> GetComponents() const;
-
-        /**
-         * @brief Remove all components from entity
-         */
-        void RemoveAllComponents();
-
-        // Metadata and properties
-
-        /**
-         * @brief Get entity metadata
-         * @return Reference to metadata
-         */
-        EntityMetadata& GetMetadata() { return m_metadata; }
-
-        /**
-         * @brief Get entity metadata (const version)
-         * @return Reference to metadata
-         */
-        const EntityMetadata& GetMetadata() const { return m_metadata; }
-
-        /**
-         * @brief Set entity type
-         * @param type Entity type identifier
-         */
-        void SetType(const std::string& type) { m_metadata.type = type; }
-
-        /**
-         * @brief Get entity type
-         * @return Entity type identifier
-         */
-        const std::string& GetType() const { return m_metadata.type; }
-
-        /**
-         * @brief Add tag to entity
-         * @param tag Tag to add
-         * @param value Optional tag value
-         */
-        void AddTag(const std::string& tag, const std::string& value = "");
-
-        /**
-         * @brief Remove tag from entity
-         * @param tag Tag to remove
-         */
-        void RemoveTag(const std::string& tag);
-
-        /**
-         * @brief Check if entity has tag
-         * @param tag Tag to check
-         * @return true if has tag, false otherwise
-         */
-        bool HasTag(const std::string& tag) const;
-
-        /**
-         * @brief Get tag value
-         * @param tag Tag name
-         * @return Optional tag value
-         */
-        std::optional<std::string> GetTag(const std::string& tag) const;
-
-        /**
-         * @brief Set custom property
-         * @tparam T Property type
-         * @param name Property name
-         * @param value Property value
-         */
-        template<typename T>
-        void SetProperty(const std::string& name, const T& value);
-
-        /**
-         * @brief Get custom property
-         * @tparam T Property type
-         * @param name Property name
-         * @return Optional property value
-         */
-        template<typename T>
-        std::optional<T> GetProperty(const std::string& name) const;
-
-        /**
-         * @brief Remove custom property
-         * @param name Property name
-         */
-        void RemoveProperty(const std::string& name);
-
-        // Entity lifecycle
-
-        /**
-         * @brief Update entity (called every frame)
-         * @param deltaTime Time elapsed since last update
-         */
-        void Update(double deltaTime);
-
-        /**
-         * @brief Late update entity (called after all regular updates)
-         * @param deltaTime Time elapsed since last update
-         */
-        void LateUpdate(double deltaTime);
-
-        /**
-         * @brief Fixed update entity (called at fixed intervals)
-         * @param fixedDeltaTime Fixed time step
-         */
-        void FixedUpdate(double fixedDeltaTime);
-
-        // Serialization
-
-        /**
-         * @brief Serialize entity to data stream
-         * @param stream Output stream
-         * @return true if successful, false otherwise
-         */
-        bool Serialize(std::ostream& stream) const;
-
-        /**
-         * @brief Deserialize entity from data stream
-         * @param stream Input stream
-         * @return true if successful, false otherwise
-         */
-        bool Deserialize(std::istream& stream);
-
-        // Event system integration
-
-        /**
-         * @brief Send event from this entity
-         * @param eventType Event type
-         * @param data Event data
-         */
-        void SendEvent(const std::string& eventType, std::any data = {});
-
-        /**
-         * @brief Broadcast event to all components
-         * @param eventType Event type
-         * @param data Event data
-         */
-        void BroadcastEvent(const std::string& eventType, std::any data = {});
+        EntityManager* GetManager() const { return m_manager; }
 
     private:
         /**
-         * @brief Initialize entity
+         * @brief Add component to internal storage
+         * @param component Component to add
          */
-        void Initialize();
+        void AddComponentInternal(Component* component);
 
         /**
-         * @brief Cleanup entity resources
+         * @brief Remove component from internal storage
+         * @param component Component to remove
          */
-        void Cleanup();
+        void RemoveComponentInternal(Component* component);
 
-        /**
-         * @brief Notify components about state change
-         */
-        void NotifyStateChange();
+        EntityID m_id;                                           ///< Unique entity ID
+        std::string m_name;                                      ///< Entity name
+        EntityState m_state;                                     ///< Current entity state
+        EntityManager* m_manager;                                ///< Entity manager owner
+        std::unordered_map<std::string, std::unique_ptr<Component>> m_components; ///< Components by type
 
-        EntityID m_id;                                    ///< Unique entity ID
-        EntityState m_state;                              ///< Current entity state
-        EntityMetadata m_metadata;                        ///< Entity metadata
-
-        std::unordered_map<std::string, std::unique_ptr<Component>> m_components; ///< Attached components
-        mutable std::mutex m_componentsMutex;             ///< Components synchronization
-
-        // Cached component pointers for fast access
-        std::unordered_map<std::string, Component*> m_componentCache;
-
-        // Entity hierarchy (future feature)
-        Entity* m_parent;                                 ///< Parent entity
-        std::vector<Entity*> m_children;                  ///< Child entities
-
-        // Statistics
-        uint64_t m_updateCount;                           ///< Number of updates
-        double m_totalUpdateTime;                         ///< Total update time
-
-        // Next component ID for this entity
-        uint32_t m_nextComponentId;
+        // Friend classes for internal access
+        friend class EntityManager;
+        friend class Component;
     };
-
-    // Template implementations
-
-    template<typename T, typename... Args>
-    T* Entity::AddComponent(Args&&... args) {
-        static_assert(std::is_base_of<Component, T>::value, "T must inherit from Component");
-
-        std::lock_guard<std::mutex> lock(m_componentsMutex);
-
-        std::string typeName = typeid(T).name();
-
-        // Check if component already exists
-        if (m_components.count(typeName) > 0) {
-            return static_cast<T*>(m_components[typeName].get());
-        }
-
-        // Create new component
-        auto component = std::make_unique<T>(std::forward<Args>(args)...);
-        T* componentPtr = component.get();
-
-        // Initialize component
-        component->m_entity = this;
-        component->m_id = m_nextComponentId++;
-        component->m_typeName = typeName;
-        component->OnAttach();
-
-        // Store component
-        m_components[typeName] = std::move(component);
-        m_componentCache[typeName] = componentPtr;
-
-        return componentPtr;
-    }
-
-    template<typename T>
-    T* Entity::GetComponent() {
-        static_assert(std::is_base_of<Component, T>::value, "T must inherit from Component");
-
-        std::lock_guard<std::mutex> lock(m_componentsMutex);
-
-        std::string typeName = typeid(T).name();
-        auto it = m_components.find(typeName);
-
-        if (it != m_components.end()) {
-            return static_cast<T*>(it->second.get());
-        }
-
-        return nullptr;
-    }
-
-    template<typename T>
-    const T* Entity::GetComponent() const {
-        static_assert(std::is_base_of<Component, T>::value, "T must inherit from Component");
-
-        std::lock_guard<std::mutex> lock(m_componentsMutex);
-
-        std::string typeName = typeid(T).name();
-        auto it = m_components.find(typeName);
-
-        if (it != m_components.end()) {
-            return static_cast<const T*>(it->second.get());
-        }
-
-        return nullptr;
-    }
-
-    template<typename T>
-    bool Entity::RemoveComponent() {
-        static_assert(std::is_base_of<Component, T>::value, "T must inherit from Component");
-
-        std::lock_guard<std::mutex> lock(m_componentsMutex);
-
-        std::string typeName = typeid(T).name();
-        auto it = m_components.find(typeName);
-
-        if (it != m_components.end()) {
-            it->second->OnDetach();
-            m_componentCache.erase(typeName);
-            m_components.erase(it);
-            return true;
-        }
-
-        return false;
-    }
-
-    template<typename T>
-    bool Entity::HasComponent() const {
-        static_assert(std::is_base_of<Component, T>::value, "T must inherit from Component");
-
-        std::lock_guard<std::mutex> lock(m_componentsMutex);
-        return m_components.count(typeid(T).name()) > 0;
-    }
-
-    template<typename T>
-    void Entity::SetProperty(const std::string& name, const T& value) {
-        m_metadata.properties[name] = value;
-    }
-
-    template<typename T>
-    std::optional<T> Entity::GetProperty(const std::string& name) const {
-        auto it = m_metadata.properties.find(name);
-        if (it != m_metadata.properties.end()) {
-            try {
-                return std::any_cast<T>(it->second);
-            } catch (const std::bad_any_cast&) {
-                return std::nullopt;
-            }
-        }
-        return std::nullopt;
-    }
 
 } // namespace VoxelCraft
 

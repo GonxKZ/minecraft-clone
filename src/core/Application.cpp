@@ -12,12 +12,14 @@
 #include "Engine.hpp"
 #include "Logger.hpp"
 #include "Config.hpp"
+#include "EventSystem.hpp"
 
 #include <iostream>
 #include <chrono>
 #include <thread>
 #include <exception>
 #include <csignal>
+#include <filesystem>
 
 namespace VoxelCraft {
 
@@ -38,7 +40,6 @@ namespace VoxelCraft {
     Application::Application()
         : m_state(ApplicationState::Uninitialized)
         , m_gameState(GameState::Loading)
-        , m_config(std::make_unique<Config>())
         , m_shutdownRequested(false)
         , m_exitCode(0)
         , m_targetFrameTime(1.0 / 60.0) // 60 FPS default
@@ -259,79 +260,125 @@ namespace VoxelCraft {
     bool Application::InitializeCoreSystems() {
         VOXELCRAFT_INFO("Initializing core systems");
 
-        // Initialize memory manager
-        // m_memoryManager = std::make_unique<MemoryManager>();
+        try {
+            // Initialize memory manager
+            m_memoryManager = std::make_unique<MemoryManager>();
 
-        // Initialize resource manager
-        // m_resourceManager = std::make_unique<ResourceManager>();
+            // Initialize resource manager
+            m_resourceManager = std::make_unique<ResourceManager>();
 
-        // Initialize event system
-        // m_eventSystem = std::make_unique<EventSystem>();
+            // Initialize event system
+            m_eventSystem = std::make_unique<EventSystem>();
 
-        VOXELCRAFT_INFO("Core systems initialized");
-        return true;
+            VOXELCRAFT_INFO("Core systems initialized successfully");
+            return true;
+
+        } catch (const std::exception& e) {
+            VOXELCRAFT_ERROR("Failed to initialize core systems: {}", e.what());
+            return false;
+        }
     }
 
     bool Application::InitializeGraphicsSystem() {
         VOXELCRAFT_INFO("Initializing graphics system");
 
-        // Create window
-        // m_window = std::make_unique<Window>(...);
+        try {
+            // Create window - Using stub for now
+            // m_window = std::make_unique<Window>();
 
-        // Create renderer
-        // m_renderer = std::make_unique<Renderer>(...);
+            // Create renderer - Using stub for now
+            // m_renderer = std::make_unique<Renderer>();
 
-        VOXELCRAFT_INFO("Graphics system initialized");
-        return true;
+            VOXELCRAFT_INFO("Graphics system initialized (using stubs)");
+            return true;
+
+        } catch (const std::exception& e) {
+            VOXELCRAFT_ERROR("Failed to initialize graphics system: {}", e.what());
+            return false;
+        }
     }
 
     bool Application::InitializeGameSystems() {
         VOXELCRAFT_INFO("Initializing game systems");
 
-        // Create engine
-        // m_engine = std::make_unique<Engine>(...);
+        try {
+            // Create engine with default config
+            Engine::EngineConfig engineConfig;
+            engineConfig.targetFPS = 60.0;
+            engineConfig.enableMultithreading = true;
+            engineConfig.workerThreads = 4;
+            m_engine = std::make_unique<Engine>(engineConfig);
 
-        // Create world
-        // m_world = std::make_unique<World>(...);
+            // Initialize the engine
+            if (!m_engine->Initialize()) {
+                VOXELCRAFT_ERROR("Failed to initialize engine");
+                return false;
+            }
 
-        // Create player
-        // m_player = std::make_unique<Player>(...);
+            // Create world - Using stub for now
+            // m_world = std::make_unique<World>();
 
-        VOXELCRAFT_INFO("Game systems initialized");
-        return true;
+            // Create player - Using stub for now
+            // m_player = std::make_unique<Player>();
+
+            VOXELCRAFT_INFO("Game systems initialized successfully");
+            return true;
+
+        } catch (const std::exception& e) {
+            VOXELCRAFT_ERROR("Failed to initialize game systems: {}", e.what());
+            return false;
+        }
     }
 
     bool Application::InitializeNetworkSystem() {
         VOXELCRAFT_INFO("Initializing network system");
 
-        // Create network manager
-        // m_networkManager = std::make_unique<NetworkManager>(...);
+        try {
+            // Create network manager - Using stub for now
+            // m_networkManager = std::make_unique<NetworkManager>();
 
-        VOXELCRAFT_INFO("Network system initialized");
-        return true;
+            VOXELCRAFT_INFO("Network system initialized (using stub)");
+            return true;
+
+        } catch (const std::exception& e) {
+            VOXELCRAFT_ERROR("Failed to initialize network system: {}", e.what());
+            return false;
+        }
     }
 
     bool Application::InitializeUISystem() {
         VOXELCRAFT_INFO("Initializing UI system");
 
-        // Create UI manager
-        // m_uiManager = std::make_unique<UIManager>(...);
+        try {
+            // Create UI manager - Using stub for now
+            // m_uiManager = std::make_unique<UIManager>();
 
-        VOXELCRAFT_INFO("UI system initialized");
-        return true;
+            VOXELCRAFT_INFO("UI system initialized (using stub)");
+            return true;
+
+        } catch (const std::exception& e) {
+            VOXELCRAFT_ERROR("Failed to initialize UI system: {}", e.what());
+            return false;
+        }
     }
 
     bool Application::InitializeDevelopmentTools() {
         VOXELCRAFT_INFO("Initializing development tools");
 
-        // Create save manager
-        // m_saveManager = std::make_unique<SaveManager>(...);
+        try {
+            // Create save manager - Using stub for now
+            // m_saveManager = std::make_unique<SaveManager>();
 
-        // Create profiler
-        // m_profiler = std::make_unique<Profiler>(...);
+            // Create profiler - Using stub for now
+            // m_profiler = std::make_unique<Profiler>();
 
-        VOXELCRAFT_INFO("Development tools initialized");
-        return true;
+            VOXELCRAFT_INFO("Development tools initialized (using stubs)");
+            return true;
+
+        } catch (const std::exception& e) {
+            VOXELCRAFT_ERROR("Failed to initialize development tools: {}", e.what());
+            return false;
+        }
     }
 
     void Application::MainLoop() {
@@ -381,68 +428,89 @@ namespace VoxelCraft {
             m_engine->Update(deltaTime);
         }
 
-        // Update world
-        if (m_world) {
-            m_world->Update(deltaTime);
+        // Update world - Using stub
+        // if (m_world) {
+        //     m_world->Update(deltaTime);
+        // }
+
+        // Update player - Using stub
+        // if (m_player) {
+        //     m_player->Update(deltaTime);
+        // }
+
+        // Update UI - Using stub
+        // if (m_uiManager) {
+        //     m_uiManager->Update(deltaTime);
+        // }
+
+        // Update network - Using stub
+        // if (m_networkManager) {
+        //     m_networkManager->Update(deltaTime);
+        // }
+
+        // Update memory manager
+        if (m_memoryManager) {
+            m_memoryManager->UpdateStatistics();
         }
 
-        // Update player
-        if (m_player) {
-            m_player->Update(deltaTime);
-        }
-
-        // Update UI
-        if (m_uiManager) {
-            m_uiManager->Update(deltaTime);
-        }
-
-        // Update network
-        if (m_networkManager) {
-            m_networkManager->Update(deltaTime);
+        // Update resource manager
+        if (m_resourceManager) {
+            // Resource manager doesn't need per-frame updates
         }
     }
 
     void Application::Render() {
-        // Begin frame
-        if (m_renderer) {
-            m_renderer->BeginFrame();
+        // Begin frame - Using stub
+        // if (m_renderer) {
+        //     m_renderer->BeginFrame();
+        // }
+
+        // Render world - Using stub
+        // if (m_world) {
+        //     m_world->Render();
+        // }
+
+        // Render UI - Using stub
+        // if (m_uiManager) {
+        //     m_uiManager->Render();
+        // }
+
+        // Render engine
+        if (m_engine) {
+            m_engine->Render();
         }
 
-        // Render world
-        if (m_world) {
-            m_world->Render();
-        }
+        // End frame - Using stub
+        // if (m_renderer) {
+        //     m_renderer->EndFrame();
+        // }
 
-        // Render UI
-        if (m_uiManager) {
-            m_uiManager->Render();
-        }
-
-        // End frame
-        if (m_renderer) {
-            m_renderer->EndFrame();
-        }
-
-        // Present frame
-        if (m_window) {
-            m_window->Present();
-        }
+        // Present frame - Using stub
+        // if (m_window) {
+        //     m_window->Present();
+        // }
     }
 
     void Application::HandleEvents() {
-        // Process window events
-        if (m_window) {
-            m_window->ProcessEvents();
+        // Process window events - Using stub
+        // if (m_window) {
+        //     m_window->ProcessEvents();
+        // }
+
+        // Process input events - Engine handles this
+        if (m_engine) {
+            // Engine will handle input processing internally
         }
 
-        // Process input events
-        if (m_engine && m_engine->GetInputManager()) {
-            m_engine->GetInputManager()->ProcessEvents();
-        }
+        // Process network events - Using stub
+        // if (m_networkManager) {
+        //     m_networkManager->ProcessEvents();
+        // }
 
-        // Process network events
-        if (m_networkManager) {
-            m_networkManager->ProcessEvents();
+        // Process event system
+        if (m_eventSystem) {
+            // Dispatch any pending events
+            m_eventSystem->DispatchEvents();
         }
     }
 
@@ -516,33 +584,47 @@ namespace VoxelCraft {
     void Application::Cleanup() {
         VOXELCRAFT_INFO("Cleaning up application resources");
 
-        // Clean up in reverse order of initialization
+        try {
+            // Clean up in reverse order of initialization
 
-        // Development tools
-        m_profiler.reset();
-        m_saveManager.reset();
+            // Development tools
+            m_profiler.reset();
+            m_saveManager.reset();
 
-        // UI system
-        m_uiManager.reset();
+            // UI system
+            m_uiManager.reset();
 
-        // Network system
-        m_networkManager.reset();
+            // Network system
+            m_networkManager.reset();
 
-        // Game systems
-        m_player.reset();
-        m_world.reset();
-        m_engine.reset();
+            // Game systems
+            m_player.reset();
+            m_world.reset();
+            if (m_engine) {
+                m_engine->Shutdown();
+                m_engine.reset();
+            }
 
-        // Graphics system
-        m_renderer.reset();
-        m_window.reset();
+            // Graphics system
+            m_renderer.reset();
+            m_window.reset();
 
-        // Core systems
-        m_resourceManager.reset();
-        m_memoryManager.reset();
-        m_eventSystem.reset();
+            // Core systems
+            m_resourceManager.reset();
+            if (m_memoryManager) {
+                m_memoryManager->Shutdown();
+                m_memoryManager.reset();
+            }
+            if (m_eventSystem) {
+                m_eventSystem->Stop();
+                m_eventSystem.reset();
+            }
 
-        VOXELCRAFT_INFO("Application cleanup completed");
+            VOXELCRAFT_INFO("Application cleanup completed successfully");
+
+        } catch (const std::exception& e) {
+            VOXELCRAFT_ERROR("Exception during cleanup: {}", e.what());
+        }
     }
 
     // Global application accessor

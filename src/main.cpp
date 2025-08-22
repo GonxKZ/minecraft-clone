@@ -13,6 +13,8 @@
 #include "core/Logger.hpp"
 #include "core/Config.hpp"
 
+#include <unordered_map>
+
 #include <iostream>
 #include <string>
 #include <vector>
@@ -117,7 +119,7 @@ void PrintVersion() {
 int main(int argc, char* argv[]) {
     try {
         // Initialize logger first
-        VoxelCraft::Logger::Initialize();
+        VoxelCraft::LogManager::Initialize();
 
         // Parse command line arguments
         auto args = ParseCommandLine(argc, argv);
@@ -230,7 +232,17 @@ int main(int argc, char* argv[]) {
         if (args.count("log-level")) {
             std::string level = args["log-level"];
             config.Set("logging.level", level);
-            VoxelCraft::Logger::SetLevel(level);
+
+            // Convert string level to LogLevel enum
+            VoxelCraft::LogLevel logLevel = VoxelCraft::LogLevel::Info;
+            if (level == "trace") logLevel = VoxelCraft::LogLevel::Trace;
+            else if (level == "debug") logLevel = VoxelCraft::LogLevel::Debug;
+            else if (level == "info") logLevel = VoxelCraft::LogLevel::Info;
+            else if (level == "warning") logLevel = VoxelCraft::LogLevel::Warning;
+            else if (level == "error") logLevel = VoxelCraft::LogLevel::Error;
+            else if (level == "fatal") logLevel = VoxelCraft::LogLevel::Fatal;
+
+            VoxelCraft::LogManager::SetGlobalLevel(logLevel);
             VOXELCRAFT_INFO("Log level set to: {}", level);
         }
 

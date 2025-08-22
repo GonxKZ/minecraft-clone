@@ -52,6 +52,20 @@ namespace VoxelCraft {
     };
 
     /**
+     * @enum GameState
+     * @brief Represents the current state of the game
+     */
+    enum class GameState {
+        Loading,           ///< Game is loading
+        MainMenu,          ///< Main menu is active
+        Playing,           ///< Game is being played
+        Paused,            ///< Game is paused
+        Saving,            ///< Game is saving
+        LoadingLevel,      ///< Loading a level
+        Exiting            ///< Game is exiting
+    };
+
+    /**
      * @struct ApplicationMetrics
      * @brief Performance and runtime metrics for the application
      */
@@ -59,6 +73,9 @@ namespace VoxelCraft {
         double frameTime = 0.0;           ///< Time taken for last frame (seconds)
         double fps = 0.0;                 ///< Current frames per second
         double averageFPS = 0.0;          ///< Average FPS over time
+        double updateTime = 0.0;          ///< Time spent on updates (seconds)
+        double renderTime = 0.0;          ///< Time spent on rendering (seconds)
+        double physicsTime = 0.0;         ///< Time spent on physics (seconds)
         uint64_t frameCount = 0;          ///< Total number of frames rendered
         uint64_t totalTime = 0;           ///< Total application runtime (microseconds)
         size_t memoryUsage = 0;           ///< Current memory usage (bytes)
@@ -319,6 +336,7 @@ namespace VoxelCraft {
         // Configuration and state
         Config m_config;                                      ///< Application configuration
         ApplicationState m_state;                             ///< Current application state
+        GameState m_gameState;                                ///< Current game state
         ApplicationMetrics m_metrics;                         ///< Performance metrics
 
         // Timing

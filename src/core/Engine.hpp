@@ -24,6 +24,7 @@
 
 #include "Config.hpp"
 #include "Logger.hpp"
+#include "../entities/EntityManager.hpp"
 
 namespace VoxelCraft {
 
@@ -41,6 +42,8 @@ namespace VoxelCraft {
     class Profiler;
     class ResourceManager;
     class ScriptEngine;
+    class EntityManager;
+    class RenderSystem;
 
     /**
      * @enum EngineState
@@ -311,6 +314,18 @@ namespace VoxelCraft {
          */
         Profiler* GetProfiler() const { return m_profiler.get(); }
 
+        /**
+         * @brief Get entity manager
+         * @return Entity manager instance
+         */
+        EntityManager* GetEntityManager() const { return m_entityManager.get(); }
+
+        /**
+         * @brief Get render system
+         * @return Render system instance
+         */
+        RenderSystem* GetRenderSystem() const { return m_renderSystem.get(); }
+
         // Task management
 
         /**
@@ -487,6 +502,8 @@ namespace VoxelCraft {
         std::unique_ptr<SaveManager> m_saveManager;        ///< Save system
         std::unique_ptr<Profiler> m_profiler;              ///< Performance profiler
         std::unique_ptr<ScriptEngine> m_scriptEngine;      ///< Script system
+        std::unique_ptr<EntityManager> m_entityManager;    ///< Entity system manager
+        std::unique_ptr<RenderSystem> m_renderSystem;      ///< Render system
 
         // Task management
         struct Task {
@@ -505,7 +522,7 @@ namespace VoxelCraft {
 
         // Threading and synchronization
         mutable std::mutex m_stateMutex;                   ///< State synchronization
-        mutable std::shared_mutex m_metricsMutex;          ///< Metrics synchronization
+        mutable std::mutex m_metricsMutex;          ///< Metrics synchronization
 
         // Performance profiling
         bool m_profilingEnabled;                           ///< Profiling enabled flag
