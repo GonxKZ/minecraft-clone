@@ -20,6 +20,8 @@
 #include "Logger.hpp"
 
 #include <memory>
+#include <array>
+#include <cmath>
 
 namespace VoxelCraft {
 
@@ -73,7 +75,7 @@ namespace VoxelCraft {
          * @param name Name of the entity
          * @return Created entity or nullptr
          */
-        Entity* CreateCubeEntity(const glm::vec3& position, const std::string& name = "Cube");
+        Entity* CreateCubeEntity(const Vec3& position, const std::string& name = "Cube");
 
         /**
          * @brief Create a player entity
@@ -81,14 +83,14 @@ namespace VoxelCraft {
          * @param name Name of the player
          * @return Created entity or nullptr
          */
-        Entity* CreatePlayerEntity(const glm::vec3& position, const std::string& name = "Player");
+        Entity* CreatePlayerEntity(const Vec3& position, const std::string& name = "Player");
 
         /**
          * @brief Create a camera entity
          * @param position Position of the camera
          * @return Created entity or nullptr
          */
-        Entity* CreateCameraEntity(const glm::vec3& position);
+        Entity* CreateCameraEntity(const Vec3& position);
 
         /**
          * @brief Get entity manager

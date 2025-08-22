@@ -44,6 +44,7 @@ namespace VoxelCraft {
     class ScriptEngine;
     class EntityManager;
     class RenderSystem;
+    class ProceduralGenerator;
 
     /**
      * @enum EngineState
@@ -326,6 +327,12 @@ namespace VoxelCraft {
          */
         RenderSystem* GetRenderSystem() const { return m_renderSystem.get(); }
 
+        /**
+         * @brief Get procedural generator
+         * @return Procedural generator instance
+         */
+        ProceduralGenerator* GetProceduralGenerator() const { return m_proceduralGenerator.get(); }
+
         // Task management
 
         /**
@@ -504,6 +511,7 @@ namespace VoxelCraft {
         std::unique_ptr<ScriptEngine> m_scriptEngine;      ///< Script system
         std::unique_ptr<EntityManager> m_entityManager;    ///< Entity system manager
         std::unique_ptr<RenderSystem> m_renderSystem;      ///< Render system
+        std::unique_ptr<ProceduralGenerator> m_proceduralGenerator; ///< Procedural generation system
 
         // Task management
         struct Task {

@@ -14,49 +14,49 @@
 namespace VoxelCraft {
 
     TransformComponent::TransformComponent(Entity* owner)
-        : Component(owner, "TransformComponent")
-        , m_position(0.0f, 0.0f, 0.0f)
-        , m_rotation(1.0f, 0.0f, 0.0f, 0.0f) // Identity quaternion
-        , m_scale(1.0f, 1.0f, 1.0f)
-        , m_localMatrix(1.0f)
-        , m_worldMatrix(1.0f)
-        , m_isDirty(true)
-        , m_parent(nullptr)
-    {
-        VOXELCRAFT_TRACE("TransformComponent created for entity '{}'",
-                        owner ? owner->GetName() : "null");
-    }
+    : Component(owner, "TransformComponent")
+    , m_position(Vec3::zero())
+    , m_rotation(Quat()) // Identity quaternion
+    , m_scale(1.0f, 1.0f, 1.0f)
+    , m_localMatrix(Mat4::identity())
+    , m_worldMatrix(Mat4::identity())
+    , m_isDirty(true)
+    , m_parent(nullptr)
+{
+    VOXELCRAFT_TRACE("TransformComponent created for entity '{}'",
+                    owner ? owner->GetName() : "null");
+}
 
-    TransformComponent::TransformComponent(Entity* owner, const glm::vec3& position)
-        : Component(owner, "TransformComponent")
-        , m_position(position)
-        , m_rotation(1.0f, 0.0f, 0.0f, 0.0f) // Identity quaternion
-        , m_scale(1.0f, 1.0f, 1.0f)
-        , m_localMatrix(1.0f)
-        , m_worldMatrix(1.0f)
-        , m_isDirty(true)
-        , m_parent(nullptr)
-    {
-        VOXELCRAFT_TRACE("TransformComponent created for entity '{}' at position ({}, {}, {})",
-                        owner ? owner->GetName() : "null", position.x, position.y, position.z);
-    }
+TransformComponent::TransformComponent(Entity* owner, const Vec3& position)
+    : Component(owner, "TransformComponent")
+    , m_position(position)
+    , m_rotation(Quat()) // Identity quaternion
+    , m_scale(1.0f, 1.0f, 1.0f)
+    , m_localMatrix(Mat4::identity())
+    , m_worldMatrix(Mat4::identity())
+    , m_isDirty(true)
+    , m_parent(nullptr)
+{
+    VOXELCRAFT_TRACE("TransformComponent created for entity '{}' at position ({}, {}, {})",
+                    owner ? owner->GetName() : "null", position.x, position.y, position.z);
+}
 
-    TransformComponent::TransformComponent(Entity* owner,
-                                         const glm::vec3& position,
-                                         const glm::quat& rotation,
-                                         const glm::vec3& scale)
-        : Component(owner, "TransformComponent")
-        , m_position(position)
-        , m_rotation(rotation)
-        , m_scale(scale)
-        , m_localMatrix(1.0f)
-        , m_worldMatrix(1.0f)
-        , m_isDirty(true)
-        , m_parent(nullptr)
-    {
-        VOXELCRAFT_TRACE("TransformComponent created for entity '{}' with full transform",
-                        owner ? owner->GetName() : "null");
-    }
+TransformComponent::TransformComponent(Entity* owner,
+                                     const Vec3& position,
+                                     const Quat& rotation,
+                                     const Vec3& scale)
+    : Component(owner, "TransformComponent")
+    , m_position(position)
+    , m_rotation(rotation)
+    , m_scale(scale)
+    , m_localMatrix(Mat4::identity())
+    , m_worldMatrix(Mat4::identity())
+    , m_isDirty(true)
+    , m_parent(nullptr)
+{
+    VOXELCRAFT_TRACE("TransformComponent created for entity '{}' with full transform",
+                    owner ? owner->GetName() : "null");
+}
 
     TransformComponent::~TransformComponent() {
         VOXELCRAFT_TRACE("TransformComponent destroyed for entity '{}'",
@@ -88,102 +88,160 @@ namespace VoxelCraft {
 
     // Position operations
 
-    void TransformComponent::SetPosition(const glm::vec3& position) {
-        if (m_position != position) {
-            m_position = position;
-            MarkDirty();
-        }
+    void TransformComponent::SetPosition(const Vec3& position) {
+    if (m_position.x != position.x || m_position.y != position.y || m_position.z != position.z) {
+        m_position = position;
+        MarkDirty();
     }
+}
 
-    void TransformComponent::SetPosition(float x, float y, float z) {
-        SetPosition(glm::vec3(x, y, z));
-    }
+void TransformComponent::SetPosition(float x, float y, float z) {
+    SetPosition(Vec3(x, y, z));
+}
 
-    void TransformComponent::Translate(const glm::vec3& translation) {
-        SetPosition(m_position + translation);
-    }
+void TransformComponent::Translate(const Vec3& translation) {
+    SetPosition(m_position + translation);
+}
 
-    void TransformComponent::Translate(float x, float y, float z) {
-        Translate(glm::vec3(x, y, z));
-    }
+void TransformComponent::Translate(float x, float y, float z) {
+    Translate(Vec3(x, y, z));
+}
 
     // Rotation operations
 
-    void TransformComponent::SetRotation(const glm::quat& rotation) {
-        if (m_rotation != rotation) {
+    void TransformComponent::SetRotation(const Quat& rotation) {
+        if (m_rotation.w != rotation.w || m_rotation.x != rotation.x ||
+            m_rotation.y != rotation.y || m_rotation.z != rotation.z) {
             m_rotation = rotation;
             MarkDirty();
         }
     }
 
     void TransformComponent::SetRotation(float pitch, float yaw, float roll) {
-        glm::quat rotation = glm::quat(glm::vec3(
-            glm::radians(pitch),
-            glm::radians(yaw),
-            glm::radians(roll)
-        ));
+        Quat rotation = Quat::fromEuler(pitch, yaw, roll);
         SetRotation(rotation);
     }
 
-    void TransformComponent::Rotate(const glm::quat& rotation) {
+    void TransformComponent::Rotate(const Quat& rotation) {
         SetRotation(m_rotation * rotation);
     }
 
-    void TransformComponent::Rotate(const glm::vec3& axis, float angle) {
-        Rotate(glm::angleAxis(glm::radians(angle), glm::normalize(axis)));
+    void TransformComponent::Rotate(const Vec3& axis, float angle) {
+        // Create quaternion for rotation around axis
+        Vec3 normalizedAxis = axis.normalize();
+        float halfAngle = angle * 0.0174532925f * 0.5f; // degrees to radians
+        float sinHalf = std::sin(halfAngle);
+        float cosHalf = std::cos(halfAngle);
+
+        Quat axisRotation(
+            cosHalf,
+            normalizedAxis.x * sinHalf,
+            normalizedAxis.y * sinHalf,
+            normalizedAxis.z * sinHalf
+        );
+
+        Rotate(axisRotation);
     }
 
-    glm::vec3 TransformComponent::GetForward() const {
-        return glm::normalize(m_rotation * glm::vec3(0.0f, 0.0f, -1.0f));
+    Vec3 TransformComponent::GetForward() const {
+        return (m_rotation * Vec3::forward()).normalize();
     }
 
-    glm::vec3 TransformComponent::GetRight() const {
-        return glm::normalize(m_rotation * glm::vec3(1.0f, 0.0f, 0.0f));
+    Vec3 TransformComponent::GetRight() const {
+        return (m_rotation * Vec3::right()).normalize();
     }
 
-    glm::vec3 TransformComponent::GetUp() const {
-        return glm::normalize(m_rotation * glm::vec3(0.0f, 1.0f, 0.0f));
+    Vec3 TransformComponent::GetUp() const {
+        return (m_rotation * Vec3::up()).normalize();
     }
 
-    void TransformComponent::LookAt(const glm::vec3& target, const glm::vec3& up) {
-        glm::vec3 direction = glm::normalize(target - m_position);
-        glm::quat rotation = glm::quatLookAt(direction, up);
-        SetRotation(rotation);
+    void TransformComponent::LookAt(const Vec3& target, const Vec3& up) {
+        Vec3 direction = (target - m_position).normalize();
+        Vec3 right = up.cross(direction).normalize();
+        Vec3 newUp = direction.cross(right).normalize();
+
+        // Build rotation matrix
+        Mat4 rotationMatrix;
+        rotationMatrix.data[0] = right.x;
+        rotationMatrix.data[1] = right.y;
+        rotationMatrix.data[2] = right.z;
+
+        rotationMatrix.data[4] = newUp.x;
+        rotationMatrix.data[5] = newUp.y;
+        rotationMatrix.data[6] = newUp.z;
+
+        rotationMatrix.data[8] = direction.x;
+        rotationMatrix.data[9] = direction.y;
+        rotationMatrix.data[10] = direction.z;
+
+        // Convert to quaternion (simplified)
+        float trace = rotationMatrix.data[0] + rotationMatrix.data[5] + rotationMatrix.data[10];
+        Quat q;
+
+        if (trace > 0.0f) {
+            float s = 0.5f / std::sqrt(trace + 1.0f);
+            q.w = 0.25f / s;
+            q.x = (rotationMatrix.data[6] - rotationMatrix.data[9]) * s;
+            q.y = (rotationMatrix.data[8] - rotationMatrix.data[2]) * s;
+            q.z = (rotationMatrix.data[1] - rotationMatrix.data[4]) * s;
+        } else {
+            if (rotationMatrix.data[0] > rotationMatrix.data[5] && rotationMatrix.data[0] > rotationMatrix.data[10]) {
+                float s = 2.0f * std::sqrt(1.0f + rotationMatrix.data[0] - rotationMatrix.data[5] - rotationMatrix.data[10]);
+                q.w = (rotationMatrix.data[6] - rotationMatrix.data[9]) / s;
+                q.x = 0.25f * s;
+                q.y = (rotationMatrix.data[1] + rotationMatrix.data[4]) / s;
+                q.z = (rotationMatrix.data[8] + rotationMatrix.data[2]) / s;
+            } else if (rotationMatrix.data[5] > rotationMatrix.data[10]) {
+                float s = 2.0f * std::sqrt(1.0f + rotationMatrix.data[5] - rotationMatrix.data[0] - rotationMatrix.data[10]);
+                q.w = (rotationMatrix.data[8] - rotationMatrix.data[2]) / s;
+                q.x = (rotationMatrix.data[1] + rotationMatrix.data[4]) / s;
+                q.y = 0.25f * s;
+                q.z = (rotationMatrix.data[6] + rotationMatrix.data[9]) / s;
+            } else {
+                float s = 2.0f * std::sqrt(1.0f + rotationMatrix.data[10] - rotationMatrix.data[0] - rotationMatrix.data[5]);
+                q.w = (rotationMatrix.data[1] - rotationMatrix.data[4]) / s;
+                q.x = (rotationMatrix.data[8] + rotationMatrix.data[2]) / s;
+                q.y = (rotationMatrix.data[6] + rotationMatrix.data[9]) / s;
+                q.z = 0.25f * s;
+            }
+        }
+
+        SetRotation(q.normalize());
     }
 
     // Scale operations
 
-    void TransformComponent::SetScale(const glm::vec3& scale) {
-        if (m_scale != scale) {
+    void TransformComponent::SetScale(const Vec3& scale) {
+        if (m_scale.x != scale.x || m_scale.y != scale.y || m_scale.z != scale.z) {
             m_scale = scale;
             MarkDirty();
         }
     }
 
     void TransformComponent::SetScale(float scale) {
-        SetScale(glm::vec3(scale, scale, scale));
+        SetScale(Vec3(scale, scale, scale));
     }
 
     void TransformComponent::SetScale(float x, float y, float z) {
-        SetScale(glm::vec3(x, y, z));
+        SetScale(Vec3(x, y, z));
     }
 
-    void TransformComponent::Scale(const glm::vec3& scale) {
-        SetScale(m_scale * scale);
+    void TransformComponent::Scale(const Vec3& scale) {
+        SetScale(Vec3(m_scale.x * scale.x, m_scale.y * scale.y, m_scale.z * scale.z));
     }
 
     void TransformComponent::Scale(float scale) {
-        SetScale(m_scale * scale);
+        SetScale(Vec3(m_scale.x * scale, m_scale.y * scale, m_scale.z * scale));
     }
 
     // Matrix operations
 
-    glm::mat4 TransformComponent::GetWorldMatrix() const {
+    Mat4 TransformComponent::GetWorldMatrix() const {
         UpdateMatrices();
         return m_worldMatrix;
     }
 
-    glm::mat4 TransformComponent::GetLocalMatrix() const {
+    Mat4 TransformComponent::GetLocalMatrix() const {
         UpdateMatrices();
         return m_localMatrix;
     }
@@ -203,10 +261,13 @@ namespace VoxelCraft {
         }
 
         // Build local transformation matrix
-        m_localMatrix = glm::mat4(1.0f);
-        m_localMatrix = glm::translate(m_localMatrix, m_position);
-        m_localMatrix = m_localMatrix * glm::mat4_cast(m_rotation);
-        m_localMatrix = glm::scale(m_localMatrix, m_scale);
+        // Order: Scale -> Rotate -> Translate (TRS order)
+        Mat4 scaleMatrix = Mat4::scale(m_scale);
+        Mat4 rotationMatrix = Mat4::rotate(m_rotation);
+        Mat4 translationMatrix = Mat4::translate(m_position);
+
+        // Combine transformations: T * R * S
+        m_localMatrix = translationMatrix * rotationMatrix * scaleMatrix;
 
         // Calculate world matrix
         if (m_parent) {
@@ -267,28 +328,29 @@ namespace VoxelCraft {
         }
     }
 
-    glm::vec3 TransformComponent::GetWorldPosition() const {
+    Vec3 TransformComponent::GetWorldPosition() const {
         if (m_parent) {
-            return glm::vec3(m_parent->GetWorldMatrix() * glm::vec4(m_position, 1.0f));
+            return m_parent->GetWorldMatrix() * m_position;
         }
         return m_position;
     }
 
-    glm::quat TransformComponent::GetWorldRotation() const {
+    Quat TransformComponent::GetWorldRotation() const {
         if (m_parent) {
             return m_parent->GetWorldRotation() * m_rotation;
         }
         return m_rotation;
     }
 
-    glm::vec3 TransformComponent::GetWorldScale() const {
+    Vec3 TransformComponent::GetWorldScale() const {
         if (m_parent) {
-            return m_parent->GetWorldScale() * m_scale;
+            Vec3 parentScale = m_parent->GetWorldScale();
+            return Vec3(parentScale.x * m_scale.x, parentScale.y * m_scale.y, parentScale.z * m_scale.z);
         }
         return m_scale;
     }
 
-    glm::mat4 TransformComponent::GetWorldMatrixHierarchy() const {
+    Mat4 TransformComponent::GetWorldMatrixHierarchy() const {
         UpdateMatrices();
         return m_worldMatrix;
     }

@@ -17,6 +17,7 @@
 #include "../entities/EntityManager.hpp"
 #include "../entities/RenderSystem.hpp"
 #include "../entities/ECSExample.hpp"
+#include "../procedural/ProceduralGenerator.hpp"
 
 namespace VoxelCraft {
 
@@ -240,17 +241,32 @@ namespace VoxelCraft {
                 return false;
             }
 
+            // Initialize procedural generator
+            m_proceduralGenerator = std::make_unique<ProceduralGenerator>();
+            if (!m_proceduralGenerator->Initialize(m_entityManager.get())) {
+                VOXELCRAFT_ERROR("Failed to initialize procedural generator");
+                return false;
+            }
+
+            // Generate procedural world content
+            if (m_proceduralGenerator) {
+                Vec3 worldCenter(0.0f, 0.0f, 0.0f);
+                auto generatedObjects = m_proceduralGenerator->GenerateAll(worldCenter, 100.0f);
+                size_t createdEntities = m_proceduralGenerator->CreateEntitiesFromObjects(generatedObjects);
+                VOXELCRAFT_INFO("Procedurally generated {} entities", createdEntities);
+            }
+
             // Create some test entities with full components
             auto entity1 = m_entityManager->CreateEntity("TestEntity1");
             if (entity1) {
-                entity1->AddComponent<TransformComponent>(glm::vec3(0.0f, 0.0f, 0.0f));
+                entity1->AddComponent<TransformComponent>(Vec3(0.0f, 0.0f, 0.0f));
                 entity1->AddComponent<RenderComponent>();
                 VOXELCRAFT_INFO("Created test entity 1 with Transform and Render components");
             }
 
             auto entity2 = m_entityManager->CreateEntity("TestEntity2");
             if (entity2) {
-                entity2->AddComponent<TransformComponent>(glm::vec3(5.0f, 0.0f, 5.0f));
+                entity2->AddComponent<TransformComponent>(Vec3(5.0f, 0.0f, 5.0f));
                 entity2->AddComponent<RenderComponent>();
                 VOXELCRAFT_INFO("Created test entity 2 with Transform and Render components");
             }
@@ -258,7 +274,7 @@ namespace VoxelCraft {
             // Create a camera entity
             auto camera = m_entityManager->CreateEntity("MainCamera");
             if (camera) {
-                camera->AddComponent<TransformComponent>(glm::vec3(0.0f, 2.0f, 10.0f));
+                camera->AddComponent<TransformComponent>(Vec3(0.0f, 2.0f, 10.0f));
                 m_renderSystem->SetActiveCamera(camera);
                 VOXELCRAFT_INFO("Created main camera entity");
             }

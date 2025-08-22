@@ -113,7 +113,7 @@ namespace VoxelCraft {
         VOXELCRAFT_INFO("ECS Example shutdown complete");
     }
 
-    Entity* ECSExample::CreateCubeEntity(const glm::vec3& position, const std::string& name) {
+    Entity* ECSExample::CreateCubeEntity(const Vec3& position, const std::string& name) {
         if (!m_entityManager) {
             return nullptr;
         }
