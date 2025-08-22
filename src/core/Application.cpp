@@ -20,7 +20,8 @@
 #include "../player/Player.hpp"
 #include "../ui/UIManager.hpp"
 #include "../audio/AudioManager.hpp"
-#include "../graphics/Renderer.hpp"  // Already included, but needed for Camera access
+#include "../graphics/Renderer.hpp"
+#include "../graphics/Camera.hpp"
 
 #include <iostream>
 #include <chrono>
@@ -475,7 +476,7 @@ namespace VoxelCraft {
             m_player->SetWorld(m_world);
 
             // Create UI manager
-            m_uiManager = std::make_unique<UIManagerSimple>(m_window, m_config);
+            m_uiManager = std::make_unique<UIManager>();
             if (!m_uiManager->Initialize()) {
                 VOXELCRAFT_ERROR("Failed to initialize UI manager");
                 return false;
@@ -490,12 +491,8 @@ namespace VoxelCraft {
                 VOXELCRAFT_WARN("Failed to initialize audio manager - continuing without audio");
             }
 
-            // Get camera from renderer
-            if (m_renderer) {
-                // The renderer should have a camera, but we need to access it
-                // For now, we'll create a camera reference
-                // m_camera = m_renderer->GetCamera();
-            }
+            // Create camera
+            m_camera = std::make_shared<Camera>();
 
             VOXELCRAFT_INFO("Game systems initialized successfully");
             return true;
@@ -526,10 +523,14 @@ namespace VoxelCraft {
         VOXELCRAFT_INFO("Initializing UI system");
 
         try {
-            // Create UI manager - Using stub for now
-            // m_uiManager = std::make_unique<UIManager>();
+            // Create UI manager
+            m_uiManager = std::make_unique<UIManager>();
+            if (!m_uiManager->Initialize()) {
+                VOXELCRAFT_ERROR("Failed to initialize UI manager");
+                return false;
+            }
 
-            VOXELCRAFT_INFO("UI system initialized (using stub)");
+            VOXELCRAFT_INFO("UI system initialized successfully");
             return true;
 
         } catch (const std::exception& e) {
@@ -542,13 +543,21 @@ namespace VoxelCraft {
         VOXELCRAFT_INFO("Initializing development tools");
 
         try {
-            // Create save manager - Using stub for now
-            // m_saveManager = std::make_unique<SaveManager>();
+            // Create save manager
+            m_saveManager = std::make_unique<SaveManager>();
+            if (!m_saveManager->Initialize(m_config)) {
+                VOXELCRAFT_ERROR("Failed to initialize save manager");
+                return false;
+            }
 
-            // Create profiler - Using stub for now
-            // m_profiler = std::make_unique<Profiler>();
+            // Create profiler
+            m_profiler = std::make_unique<Profiler>();
+            if (!m_profiler->Initialize()) {
+                VOXELCRAFT_ERROR("Failed to initialize profiler");
+                return false;
+            }
 
-            VOXELCRAFT_INFO("Development tools initialized (using stubs)");
+            VOXELCRAFT_INFO("Development tools initialized successfully");
             return true;
 
         } catch (const std::exception& e) {
@@ -683,7 +692,7 @@ namespace VoxelCraft {
 
         // Render world with camera position
         if (m_world && m_camera) {
-            Vec3 cameraPos = m_camera->position;
+            Vec3 cameraPos = m_camera->GetPosition();
             m_world->Render(cameraPos);
         } else if (m_world) {
             // Default camera position if no camera
