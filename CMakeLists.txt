@@ -149,6 +149,11 @@ set(VOXELCRAFT_CORE_SOURCES
     src/ui/UIInventory.hpp
     src/ui/UIMenus.hpp
     src/ui/UIHUD.hpp
+    src/save/SaveManager.hpp
+    src/lighting/LightingSystem.hpp
+    src/particles/ParticleSystem.hpp
+    src/weather/WeatherSystem.hpp
+    src/animation/AnimationSystem.hpp
     src/audio/AudioManager.cpp
     src/audio/SoundGenerator.hpp
     src/audio/SoundGenerator.cpp
