@@ -1,511 +1,366 @@
-/**
- * @file TerrainGenerator.hpp
- * @brief VoxelCraft Advanced Terrain Generation System
- * @version 1.0.0
- * @author VoxelCraft Team
- *
- * This file defines the TerrainGenerator class that handles procedural
- * terrain generation using advanced noise functions, biomes, and features.
- */
-
-#ifndef VOXELCRAFT_WORLD_TERRAIN_GENERATOR_HPP
-#define VOXELCRAFT_WORLD_TERRAIN_GENERATOR_HPP
-
+#pragma once
 #include <memory>
 #include <vector>
 #include <unordered_map>
-#include <functional>
 #include <random>
-#include <mutex>
-#include <shared_mutex>
-
-#include "../core/Config.hpp"
-#include "World.hpp"
-#include "Chunk.hpp"
-#include "Biome.hpp"
-#include "NoiseGenerator.hpp"
+#include <cstdint>
+#include "core/Logger.hpp"
+#include "world/ChunkSystem.hpp"
 
 namespace VoxelCraft {
 
-    // Forward declarations
-    class World;
-    class Chunk;
-    struct Biome;
-
-    /**
-     * @enum GenerationPhase
-     * @brief Phases of terrain generation
-     */
-    enum class GenerationPhase {
-        BaseTerrain,     ///< Generate base terrain height
-        Biomes,          ///< Apply biome variations
-        Caves,           ///< Generate cave systems
-        Features,        ///< Generate surface features
-        Vegetation,      ///< Generate vegetation
-        Structures,      ///< Generate structures
-        Lighting,        ///< Calculate lighting
-        Finalize         ///< Final cleanup and optimization
-    };
-
-    /**
-     * @struct GenerationConfig
-     * @brief Configuration for terrain generation
-     */
-    struct GenerationConfig {
-        // Basic settings
-        int seed;                           ///< World seed
-        WorldType worldType;                ///< Type of world to generate
-        int maxHeight;                      ///< Maximum world height
-        int minHeight;                      ///< Minimum world height
-        int seaLevel;                       ///< Sea level
-
-        // Noise settings
-        float baseFrequency;                ///< Base noise frequency
-        float baseAmplitude;                ///< Base noise amplitude
-        int octaves;                        ///< Number of noise octaves
-        float persistence;                  ///< Noise persistence
-        float lacunarity;                   ///< Noise lacunarity
-
-        // Biome settings
-        float biomeScale;                   ///< Biome scale factor
-        float temperatureScale;             ///< Temperature variation scale
-        float humidityScale;                ///< Humidity variation scale
-
-        // Cave settings
-        float caveDensity;                  ///< Cave generation density
-        float caveSize;                     ///< Average cave size
-        int minCaveHeight;                  ///< Minimum cave height
-        int maxCaveHeight;                  ///< Maximum cave height
-
-        // Feature settings
-        float treeDensity;                  ///< Tree generation density
-        float flowerDensity;                ///< Flower generation density
-        float oreDensity;                   ///< Ore generation density
-
-        // Structure settings
-        float structureDensity;             ///< Structure generation density
-        int minStructureSpacing;            ///< Minimum spacing between structures
-
-        // Performance settings
-        bool useMultithreading;             ///< Enable multithreaded generation
-        int generationBatchSize;            ///< Number of chunks to generate per batch
-        bool cacheGeneration;               ///< Cache generated chunks
-        size_t maxCacheSize;                ///< Maximum cache size
-    };
-
-    /**
-     * @struct GenerationMetrics
-     * @brief Performance metrics for terrain generation
-     */
-    struct GenerationMetrics {
-        double totalGenerationTime;         ///< Total time spent generating
-        double averageChunkTime;            ///< Average time per chunk
-        double maxChunkTime;                ///< Maximum time for single chunk
-        double minChunkTime;                ///< Minimum time for single chunk
-        uint64_t chunksGenerated;           ///< Total chunks generated
-        uint64_t cacheHits;                 ///< Number of cache hits
-        uint64_t cacheMisses;               ///< Number of cache misses
-        double cacheHitRate;                ///< Cache hit rate (0.0 - 1.0)
-        std::unordered_map<GenerationPhase, double> phaseTimes; ///< Time per phase
-    };
-
-    /**
-     * @class TerrainGenerator
-     * @brief Advanced procedural terrain generator
-     *
-     * The TerrainGenerator creates diverse and interesting terrain using:
-     * - Multiple noise functions (Perlin, Simplex, Worley, Value)
-     * - Biome system with temperature and humidity
-     * - Cave and tunnel generation
-     * - Surface features (trees, flowers, rocks)
-     * - Ore generation with realistic distribution
-     * - Structure placement (villages, dungeons, etc.)
-     * - Multi-threaded generation for performance
-     * - Caching system for frequently accessed chunks
-     */
-    class TerrainGenerator {
-    public:
-        /**
-         * @brief Constructor
-         * @param config Generation configuration
-         */
-        explicit TerrainGenerator(const GenerationConfig& config);
-
-        /**
-         * @brief Destructor
-         */
-        ~TerrainGenerator();
-
-        /**
-         * @brief Deleted copy constructor
-         */
-        TerrainGenerator(const TerrainGenerator&) = delete;
-
-        /**
-         * @brief Deleted copy assignment operator
-         */
-        TerrainGenerator& operator=(const TerrainGenerator&) = delete;
-
-        // Generation interface
-
-        /**
-         * @brief Generate terrain for a chunk
-         * @param chunk Chunk to generate
-         * @return true if successful, false otherwise
-         */
-        bool GenerateChunk(Chunk* chunk);
-
-        /**
-         * @brief Generate terrain for chunk coordinates
-         * @param chunkX Chunk X coordinate
-         * @param chunkZ Chunk Z coordinate
-         * @param world World instance
-         * @return Generated chunk or nullptr on failure
-         */
-        std::unique_ptr<Chunk> GenerateChunk(int chunkX, int chunkZ, World* world);
-
-        /**
-         * @brief Generate multiple chunks
-         * @param chunks List of chunks to generate
-         * @return Number of successfully generated chunks
-         */
-        size_t GenerateChunks(std::vector<Chunk*>& chunks);
-
-        /**
-         * @brief Pre-generate chunks in area
-         * @param centerX Center X coordinate
-         * @param centerZ Center Z coordinate
-         * @param radius Generation radius in chunks
-         * @param world World instance
-         * @return Number of chunks queued for generation
-         */
-        size_t PreGenerateArea(int centerX, int centerZ, int radius, World* world);
-
-        // Height and biome queries
-
-        /**
-         * @brief Get height at world coordinates
-         * @param worldX World X coordinate
-         * @param worldZ World Z coordinate
-         * @return Height at coordinates
-         */
-        int GetHeight(int worldX, int worldZ);
-
-        /**
-         * @brief Get biome at world coordinates
-         * @param worldX World X coordinate
-         * @param worldZ World Z coordinate
-         * @return Biome information
-         */
-        Biome GetBiome(int worldX, int worldZ);
-
-        /**
-         * @brief Get temperature at world coordinates
-         * @param worldX World X coordinate
-         * @param worldZ World Z coordinate
-         * @return Temperature (0.0 - 1.0)
-         */
-        float GetTemperature(int worldX, int worldZ);
-
-        /**
-         * @brief Get humidity at world coordinates
-         * @param worldX World X coordinate
-         * @param worldZ World Z coordinate
-         * @return Humidity (0.0 - 1.0)
-         */
-        float GetHumidity(int worldX, int worldZ);
-
-        // Configuration
-
-        /**
-         * @brief Get generation configuration
-         * @return Current configuration
-         */
-        const GenerationConfig& GetConfig() const { return m_config; }
-
-        /**
-         * @brief Set generation configuration
-         * @param config New configuration
-         */
-        void SetConfig(const GenerationConfig& config);
-
-        /**
-         * @brief Get generation metrics
-         * @return Performance metrics
-         */
-        const GenerationMetrics& GetMetrics() const { return m_metrics; }
-
-        /**
-         * @brief Reset metrics
-         */
-        void ResetMetrics();
-
-        // Caching system
-
-        /**
-         * @brief Enable/disable caching
-         * @param enabled Enable state
-         */
-        void SetCachingEnabled(bool enabled);
-
-        /**
-         * @brief Check if caching is enabled
-         * @return true if enabled, false otherwise
-         */
-        bool IsCachingEnabled() const { return m_cachingEnabled; }
-
-        /**
-         * @brief Clear generation cache
-         */
-        void ClearCache();
-
-        /**
-         * @brief Get cache size
-         * @return Number of cached chunks
-         */
-        size_t GetCacheSize() const;
-
-        /**
-         * @brief Get cache hit rate
-         * @return Cache hit rate (0.0 - 1.0)
-         */
-        double GetCacheHitRate() const;
-
-    private:
-        /**
-         * @brief Initialize generation systems
-         */
-        void Initialize();
-
-        /**
-         * @brief Generate base terrain height
-         * @param chunk Chunk to generate
-         */
-        void GenerateBaseTerrain(Chunk* chunk);
-
-        /**
-         * @brief Apply biome variations
-         * @param chunk Chunk to modify
-         */
-        void ApplyBiomeVariations(Chunk* chunk);
-
-        /**
-         * @brief Generate cave systems
-         * @param chunk Chunk to modify
-         */
-        void GenerateCaves(Chunk* chunk);
-
-        /**
-         * @brief Generate surface features
-         * @param chunk Chunk to modify
-         */
-        void GenerateFeatures(Chunk* chunk);
-
-        /**
-         * @brief Generate vegetation
-         * @param chunk Chunk to modify
-         */
-        void GenerateVegetation(Chunk* chunk);
-
-        /**
-         * @brief Generate structures
-         * @param chunk Chunk to modify
-         */
-        void GenerateStructures(Chunk* chunk);
-
-        /**
-         * @brief Calculate lighting
-         * @param chunk Chunk to light
-         */
-        void CalculateLighting(Chunk* chunk);
-
-        /**
-         * @brief Finalize chunk generation
-         * @param chunk Chunk to finalize
-         */
-        void FinalizeChunk(Chunk* chunk);
-
-        /**
-         * @brief Generate terrain using noise functions
-         * @param worldX World X coordinate
-         * @param worldZ World Z coordinate
-         * @return Generated height
-         */
-        int GenerateTerrainHeight(int worldX, int worldZ);
-
-        /**
-         * @brief Generate biome at coordinates
-         * @param worldX World X coordinate
-         * @param worldZ World Z coordinate
-         * @return Biome type
-         */
-        Biome GenerateBiome(int worldX, int worldZ);
-
-        /**
-         * @brief Generate cave at coordinates
-         * @param worldX World X coordinate
-         * @param worldY World Y coordinate
-         * @param worldZ World Z coordinate
-         * @return true if cave should be generated, false otherwise
-         */
-        bool GenerateCave(int worldX, int worldY, int worldZ);
-
-        /**
-         * @brief Generate ore deposit
-         * @param worldX World X coordinate
-         * @param worldY World Y coordinate
-         * @param worldZ World Z coordinate
-         * @param oreType Type of ore to generate
-         * @return true if ore generated, false otherwise
-         */
-        bool GenerateOre(int worldX, int worldY, int worldZ, uint32_t oreType);
-
-        /**
-         * @brief Generate tree
-         * @param worldX World X coordinate
-         * @param worldY World Y coordinate
-         * @param worldZ World Z coordinate
-         * @param treeType Type of tree to generate
-         * @return true if tree generated, false otherwise
-         */
-        bool GenerateTree(int worldX, int worldY, int worldZ, uint32_t treeType);
-
-        /**
-         * @brief Check if position is suitable for feature generation
-         * @param worldX World X coordinate
-         * @param worldY World Y coordinate
-         * @param worldZ World Z coordinate
-         * @param featureType Type of feature
-         * @return true if suitable, false otherwise
-         */
-        bool IsSuitableForFeature(int worldX, int worldY, int worldZ, uint32_t featureType);
-
-        /**
-         * @brief Update generation metrics
-         * @param chunk Chunk that was generated
-         * @param generationTime Time taken to generate
-         */
-        void UpdateMetrics(Chunk* chunk, double generationTime);
-
-        /**
-         * @brief Add chunk to cache
-         * @param chunk Chunk to cache
-         */
-        void AddToCache(std::unique_ptr<Chunk> chunk);
-
-        /**
-         * @brief Get chunk from cache
-         * @param chunkX Chunk X coordinate
-         * @param chunkZ Chunk Z coordinate
-         * @return Cached chunk or nullptr
-         */
-        std::unique_ptr<Chunk> GetFromCache(int chunkX, int chunkZ);
-
-        // Generation configuration
-        GenerationConfig m_config;
-
-        // Noise generators
-        std::unique_ptr<NoiseGenerator> m_baseNoise;      ///< Base terrain noise
-        std::unique_ptr<NoiseGenerator> m_detailNoise;    ///< Detail noise
-        std::unique_ptr<NoiseGenerator> m_caveNoise;      ///< Cave generation noise
-        std::unique_ptr<NoiseGenerator> m_biomeNoise;     ///< Biome variation noise
-        std::unique_ptr<NoiseGenerator> m_temperatureNoise; ///< Temperature noise
-        std::unique_ptr<NoiseGenerator> m_humidityNoise;  ///< Humidity noise
-
-        // Random number generation
-        std::mt19937 m_randomEngine;                      ///< Random number engine
-        std::uniform_real_distribution<float> m_randomFloat; ///< Float distribution
-
-        // Biome system
-        std::vector<Biome> m_biomes;                      ///< Available biomes
-        std::unordered_map<std::string, Biome> m_biomeMap; ///< Biome lookup map
-
-        // Generation metrics
-        GenerationMetrics m_metrics;
-        mutable std::shared_mutex m_metricsMutex;         ///< Metrics synchronization
-
-        // Caching system
-        bool m_cachingEnabled;                            ///< Caching enabled flag
-        std::unordered_map<ChunkCoordinate, std::unique_ptr<Chunk>> m_cache; ///< Chunk cache
-        mutable std::shared_mutex m_cacheMutex;           ///< Cache synchronization
-        size_t m_maxCacheSize;                            ///< Maximum cache size
-
-        // World reference (for biome and feature queries)
-        World* m_world;                                   ///< Parent world
-
-        // Generation phases
-        std::vector<std::function<void(Chunk*)>> m_generationPhases; ///< Generation phases
-    };
-
-    /**
-     * @class ChunkGenerationTask
-     * @brief Task for generating a single chunk
-     */
-    class ChunkGenerationTask {
-    public:
-        /**
-         * @brief Constructor
-         * @param generator Terrain generator
-         * @param chunkX Chunk X coordinate
-         * @param chunkZ Chunk Z coordinate
-         * @param world World instance
-         */
-        ChunkGenerationTask(TerrainGenerator* generator, int chunkX, int chunkZ, World* world);
-
-        /**
-         * @brief Execute the generation task
-         * @return Generated chunk
-         */
-        std::unique_ptr<Chunk> Execute();
-
-        /**
-         * @brief Get task priority
-         * @return Priority value
-         */
-        int GetPriority() const { return m_priority; }
-
-        /**
-         * @brief Get chunk coordinates
-         * @return Chunk coordinate
-         */
-        ChunkCoordinate GetCoordinate() const { return m_coordinate; }
-
-    private:
-        TerrainGenerator* m_generator;                    ///< Terrain generator
-        ChunkCoordinate m_coordinate;                     ///< Chunk coordinates
-        World* m_world;                                   ///< World instance
-        int m_priority;                                   ///< Task priority
-    };
-
-    /**
-     * @class TerrainGeneratorFactory
-     * @brief Factory for creating terrain generators
-     */
-    class TerrainGeneratorFactory {
-    public:
-        /**
-         * @brief Create terrain generator for world type
-         * @param worldType Type of world
-         * @param seed World seed
-         * @return Terrain generator instance
-         */
-        static std::unique_ptr<TerrainGenerator> CreateGenerator(WorldType worldType, int seed);
-
-        /**
-         * @brief Create custom terrain generator
-         * @param config Generation configuration
-         * @return Terrain generator instance
-         */
-        static std::unique_ptr<TerrainGenerator> CreateCustomGenerator(const GenerationConfig& config);
-
-        /**
-         * @brief Get default configuration for world type
-         * @param worldType Type of world
-         * @return Default configuration
-         */
-        static GenerationConfig GetDefaultConfig(WorldType worldType);
-    };
+	class Biome;
+	class Block;
+	class NoiseGenerator;
+	class World;
+
+	/**
+	 * @brief Structure representing a biome region
+	 */
+	struct BiomeRegion
+	{
+		std::shared_ptr<Biome> biome;
+		float temperature;
+		float humidity;
+		float continentalness;
+		float erosion;
+		float depth;
+		float weirdness;
+	};
+
+	/**
+	 * @brief Structure representing terrain generation parameters
+	 */
+	struct TerrainParams
+	{
+		float baseHeight = 64.0f;        // Base world height
+		float heightVariation = 32.0f;   // Maximum height variation
+		float noiseScale = 0.01f;        // Base noise scale
+		float biomeScale = 0.005f;       // Biome distribution scale
+		float caveScale = 0.02f;         // Cave generation scale
+		float structureScale = 0.1f;     // Structure placement scale
+
+		// Advanced parameters
+		int octaves = 6;                 // Number of noise octaves
+		float persistence = 0.5f;        // Noise persistence
+		float lacunarity = 2.0f;         // Noise lacunarity
+		float ridgeWeight = 0.5f;        // Ridge noise weight
+
+		// Performance settings
+		bool enableCaves = true;         // Enable cave generation
+		bool enableRivers = true;        // Enable river generation
+		bool enableStructures = true;    // Enable structure generation
+		bool enableBiomes = true;        // Enable biome-based generation
+		bool enableOres = true;          // Enable ore generation
+	};
+
+	/**
+	 * @brief Structure representing a world generation seed
+	 */
+	struct WorldSeed
+	{
+		uint64_t masterSeed;             // Master seed for the world
+		uint64_t terrainSeed;            // Terrain generation seed
+		uint64_t biomeSeed;              // Biome distribution seed
+		uint64_t structureSeed;          // Structure placement seed
+		uint64_t caveSeed;               // Cave generation seed
+		uint64_t oreSeed;                // Ore generation seed
+
+		WorldSeed(uint64_t master = 0) {
+			if (master == 0) {
+				std::random_device rd;
+				masterSeed = (static_cast<uint64_t>(rd()) << 32) | rd();
+			} else {
+				masterSeed = master;
+			}
+
+			// Generate derived seeds
+			std::mt19937_64 gen(masterSeed);
+			terrainSeed = gen();
+			biomeSeed = gen();
+			structureSeed = gen();
+			caveSeed = gen();
+			oreSeed = gen();
+		}
+	};
+
+	/**
+	 * @brief Terrain generation statistics
+	 */
+	struct TerrainStats
+	{
+		uint32_t chunksGenerated;
+		uint32_t structuresGenerated;
+		uint32_t cavesGenerated;
+		uint32_t treesGenerated;
+		uint32_t oresGenerated;
+		uint32_t biomesGenerated;
+		double averageGenerationTime;
+		double averageBiomeTime;
+		double averageStructureTime;
+		double averageCaveTime;
+	};
+
+	/**
+	 * @brief Advanced procedural terrain generator
+	 *
+	 * The TerrainGenerator creates infinite, diverse worlds with:
+	 * - Multiple biomes with unique characteristics
+	 * - Natural terrain features (mountains, valleys, plains)
+	 * - Cave systems and underground structures
+	 * - Surface and underground resources
+	 * - Rivers, lakes, and water features
+	 * - Trees, plants, and natural decorations
+	 * - Weather and climate variations
+	 * - Procedural structures (villages, dungeons, etc.)
+	 */
+	class TerrainGenerator
+	{
+	public:
+		/**
+		 * @brief Constructor
+		 */
+		TerrainGenerator();
+
+		/**
+		 * @brief Destructor
+		 */
+		~TerrainGenerator();
+
+		/**
+		 * @brief Initialize terrain generator
+		 */
+		bool Initialize(const WorldSeed& seed, const TerrainParams& params = TerrainParams());
+
+		/**
+		 * @brief Shutdown terrain generator
+		 */
+		void Shutdown();
+
+		/**
+		 * @brief Generate a complete chunk
+		 */
+		void GenerateChunk(std::shared_ptr<Chunk> chunk);
+
+		/**
+		 * @brief Generate terrain height at world coordinates
+		 */
+		float GenerateHeight(int32_t worldX, int32_t worldZ);
+
+		/**
+		 * @brief Get biome at world coordinates
+		 */
+		std::shared_ptr<Biome> GetBiome(int32_t worldX, int32_t worldZ);
+
+		/**
+		 * @brief Get biome region at world coordinates
+		 */
+		BiomeRegion GetBiomeRegion(int32_t worldX, int32_t worldZ);
+
+		/**
+		 * @brief Generate cave at coordinates
+		 */
+		bool GenerateCave(int32_t worldX, int32_t worldY, int32_t worldZ);
+
+		/**
+		 * @brief Generate structure at coordinates
+		 */
+		void GenerateStructure(int32_t worldX, int32_t worldY, int32_t worldZ, std::shared_ptr<Chunk> chunk);
+
+		/**
+		 * @brief Generate ores in chunk
+		 */
+		void GenerateOres(std::shared_ptr<Chunk> chunk);
+
+		/**
+		 * @brief Generate surface features
+		 */
+		void GenerateSurface(std::shared_ptr<Chunk> chunk);
+
+		/**
+		 * @brief Generate underground features
+		 */
+		void GenerateUnderground(std::shared_ptr<Chunk> chunk);
+
+		/**
+		 * @brief Get terrain generation statistics
+		 */
+		const TerrainStats& GetStats() const { return m_stats; }
+
+		/**
+		 * @brief Get terrain parameters
+		 */
+		const TerrainParams& GetParams() const { return m_params; }
+
+		/**
+		 * @brief Set terrain parameters
+		 */
+		void SetParams(const TerrainParams& params);
+
+		/**
+		 * @brief Get world seed
+		 */
+		const WorldSeed& GetSeed() const { return m_seed; }
+
+		/**
+		 * @brief Check if generator is initialized
+		 */
+		bool IsInitialized() const { return m_initialized; }
+
+		/**
+		 * @brief Generate world seed from string
+		 */
+		static WorldSeed SeedFromString(const std::string& seedString);
+
+		/**
+		 * @brief Convert seed to string
+		 */
+		static std::string SeedToString(const WorldSeed& seed);
+
+	private:
+		WorldSeed m_seed;
+		TerrainParams m_params;
+		TerrainStats m_stats;
+		bool m_initialized;
+
+		// Noise generators
+		std::unique_ptr<NoiseGenerator> m_terrainNoise;
+		std::unique_ptr<NoiseGenerator> m_biomeNoise;
+		std::unique_ptr<NoiseGenerator> m_caveNoise;
+		std::unique_ptr<NoiseGenerator> m_structureNoise;
+		std::unique_ptr<NoiseGenerator> m_ridgeNoise;
+		std::unique_ptr<NoiseGenerator> m_temperatureNoise;
+		std::unique_ptr<NoiseGenerator> m_humidityNoise;
+
+		// Biome registry
+		std::vector<std::shared_ptr<Biome>> m_biomes;
+		std::unordered_map<std::string, std::shared_ptr<Biome>> m_biomeMap;
+
+		// Random number generators
+		std::mt19937_64 m_randomGen;
+		std::uniform_real_distribution<float> m_randomFloat;
+
+		// Performance tracking
+		std::chrono::steady_clock::time_point m_lastStatsUpdate;
+
+		/**
+		 * @brief Initialize noise generators
+		 */
+		void InitializeNoiseGenerators();
+
+		/**
+		 * @brief Initialize biomes
+		 */
+		void InitializeBiomes();
+
+		/**
+		 * @brief Generate base terrain
+		 */
+		void GenerateBaseTerrain(std::shared_ptr<Chunk> chunk);
+
+		/**
+		 * @brief Apply biome modifications
+		 */
+		void ApplyBiomeModifications(std::shared_ptr<Chunk> chunk);
+
+		/**
+		 * @brief Generate terrain height map
+		 */
+		void GenerateHeightMap(std::shared_ptr<Chunk> chunk);
+
+		/**
+		 * @brief Generate cave systems
+		 */
+		void GenerateCaveSystems(std::shared_ptr<Chunk> chunk);
+
+		/**
+		 * @brief Generate river systems
+		 */
+		void GenerateRiverSystems(std::shared_ptr<Chunk> chunk);
+
+		/**
+		 * @brief Generate ore deposits
+		 */
+		void GenerateOreDeposits(std::shared_ptr<Chunk> chunk);
+
+		/**
+		 * @brief Generate trees and vegetation
+		 */
+		void GenerateVegetation(std::shared_ptr<Chunk> chunk);
+
+		/**
+		 * @brief Generate surface decorations
+		 */
+		void GenerateDecorations(std::shared_ptr<Chunk> chunk);
+
+		/**
+		 * @brief Generate underground structures
+		 */
+		void GenerateUndergroundStructures(std::shared_ptr<Chunk> chunk);
+
+		/**
+		 * @brief Determine biome at coordinates
+		 */
+		std::shared_ptr<Biome> DetermineBiome(float temperature, float humidity,
+			float continentalness, float erosion, float depth, float weirdness);
+
+		/**
+		 * @brief Calculate terrain height at coordinates
+		 */
+		float CalculateTerrainHeight(int32_t worldX, int32_t worldZ, const BiomeRegion& region);
+
+		/**
+		 * @brief Apply height modifications
+		 */
+		float ApplyHeightModifications(float baseHeight, int32_t worldX, int32_t worldZ);
+
+		/**
+		 * @brief Generate cave at specific location
+		 */
+		bool GenerateCaveAt(int32_t worldX, int32_t worldY, int32_t worldZ);
+
+		/**
+		 * @brief Check if location is suitable for structure
+		 */
+		bool IsValidStructureLocation(int32_t worldX, int32_t worldY, int32_t worldZ,
+			const std::string& structureType);
+
+		/**
+		 * @brief Generate specific structure type
+		 */
+		void GenerateStructureType(const std::string& type, int32_t worldX, int32_t worldY, int32_t worldZ,
+			std::shared_ptr<Chunk> chunk);
+
+		/**
+		 * @brief Update generation statistics
+		 */
+		void UpdateStats();
+
+		/**
+		 * @brief Get noise value with multiple octaves
+		 */
+		float GetNoiseValue(int32_t x, int32_t y, int32_t z, NoiseGenerator* noiseGen);
+
+		/**
+		 * @brief Get biome noise values
+		 */
+		void GetBiomeNoiseValues(int32_t worldX, int32_t worldZ, float& temperature,
+			float& humidity, float& continentalness, float& erosion, float& depth, float& weirdness);
+
+		/**
+		 * @brief Apply post-processing to terrain
+		 */
+		void PostProcessTerrain(std::shared_ptr<Chunk> chunk);
+
+		/**
+		 * @brief Smooth terrain transitions
+		 */
+		void SmoothTerrainTransitions(std::shared_ptr<Chunk> chunk);
+
+		/**
+		 * @brief Validate generated terrain
+		 */
+		bool ValidateTerrain(std::shared_ptr<Chunk> chunk);
+	};
 
 } // namespace VoxelCraft
-
-#endif // VOXELCRAFT_WORLD_TERRAIN_GENERATOR_HPP

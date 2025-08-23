@@ -1,288 +1,483 @@
-/**
- * @file Renderer.hpp
- * @brief VoxelCraft Graphics System - OpenGL Renderer
- * @version 1.0.0
- * @author VoxelCraft Team
- */
-
-#ifndef VOXELCRAFT_GRAPHICS_RENDERER_HPP
-#define VOXELCRAFT_GRAPHICS_RENDERER_HPP
-
+#pragma once
 #include <memory>
 #include <vector>
-#include <string>
 #include <unordered_map>
+#include <string>
 #include <functional>
-
-#include "../window/Window.hpp"
-#include "../blocks/Block.hpp"
+#include <mutex>
+#include <atomic>
+#include <cstdint>
+#include "core/Logger.hpp"
 
 namespace VoxelCraft {
 
-    // Forward declarations
-    class Shader;
-    class Camera;
-    class Mesh;
-    struct Vec3;
-    struct Vec4;
-    struct Mat4;
+	class Window;
+	class Camera;
+	class Shader;
+	class Mesh;
+	class Texture;
+	class Material;
+	class RenderTarget;
+	class VertexBuffer;
+	class IndexBuffer;
+	class VertexArray;
+	class UniformBuffer;
+	class FrameBuffer;
+	class RenderPass;
+	class Pipeline;
+	class CommandBuffer;
 
-    /**
-     * @enum RenderMode
-     * @brief Rendering modes for different types of objects
-     */
-    enum class RenderMode {
-        SOLID,           // Solid geometry (blocks, terrain)
-        TRANSPARENT,     // Transparent objects (water, glass)
-        PARTICLES,       // Particle effects
-        UI,              // User interface elements
-        DEBUG            // Debug visualization
-    };
+	/**
+	 * @brief Graphics API enumeration
+	 */
+	enum class GraphicsAPI
+	{
+		OPENGL,
+		VULKAN,
+		DIRECTX12,
+		METAL
+	};
 
-    /**
-     * @enum RenderPass
-     * @brief Render passes for multi-pass rendering
-     */
-    enum class RenderPass {
-        DEPTH_PREPASS,   // Depth-only pass for optimization
-        GEOMETRY,        // Main geometry pass
-        TRANSPARENT,     // Transparent objects
-        POST_PROCESS,    // Post-processing effects
-        UI               // UI rendering
-    };
+	/**
+	 * @brief Render mode enumeration
+	 */
+	enum class RenderMode
+	{
+		FORWARD,
+		DEFERRED,
+		TILED,
+		CLUSTERED,
+		RAY_TRACING
+	};
 
-    /**
-     * @struct RenderStats
-     * @brief Rendering performance statistics
-     */
-    struct RenderStats {
-        int drawCalls;           // Number of draw calls per frame
-        int vertices;            // Number of vertices rendered
-        int triangles;           // Number of triangles rendered
-        float renderTime;        // Time spent rendering (ms)
-        int visibleChunks;       // Number of visible chunks
-        int visibleEntities;     // Number of visible entities
-        int fps;                 // Current FPS
-    };
+	/**
+	 * @brief Rendering quality enumeration
+	 */
+	enum class RenderQuality
+	{
+		LOW,
+		MEDIUM,
+		HIGH,
+		ULTRA,
+		CUSTOM
+	};
 
-    /**
-     * @struct RenderCommand
-     * @brief A single render command
-     */
-    struct RenderCommand {
-        RenderMode mode;
-        Mat4 transform;
-        Vec3 position;
-        Vec4 color;
-        std::shared_ptr<Mesh> mesh;
-        std::shared_ptr<Shader> shader;
-        float distance;          // Distance from camera (for sorting)
+	/**
+	 * @brief Anti-aliasing mode enumeration
+	 */
+	enum class AntiAliasing
+	{
+		NONE,
+		MSAA_2X,
+		MSAA_4X,
+		MSAA_8X,
+		MSAA_16X,
+		FXAA,
+		TAA,
+		SSAA
+	};
 
-        RenderCommand()
-            : mode(RenderMode::SOLID)
-            , color(1.0f, 1.0f, 1.0f, 1.0f)
-            , distance(0.0f)
-        {}
-    };
+	/**
+	 * @brief Texture filtering mode enumeration
+	 */
+	enum class TextureFilter
+	{
+		NEAREST,
+		BILINEAR,
+		TRILINEAR,
+		ANISOTROPIC_2X,
+		ANISOTROPIC_4X,
+		ANISOTROPIC_8X,
+		ANISOTROPIC_16X
+	};
 
-    /**
-     * @class Renderer
-     * @brief Main OpenGL renderer for VoxelCraft
-     */
-    class Renderer {
-    public:
-        /**
-         * @brief Constructor
-         * @param window Window to render to
-         */
-        Renderer(std::shared_ptr<Window> window);
+	/**
+	 * @brief Shadow quality enumeration
+	 */
+	enum class ShadowQuality
+	{
+		NONE,
+		LOW,
+		MEDIUM,
+		HIGH,
+		ULTRA,
+		RAY_TRACED
+	};
 
-        /**
-         * @brief Destructor
-         */
-        ~Renderer();
+	/**
+	 * @brief Renderer configuration structure
+	 */
+	struct RendererConfig
+	{
+		GraphicsAPI api = GraphicsAPI::OPENGL;
+		RenderMode mode = RenderMode::DEFERRED;
+		RenderQuality quality = RenderQuality::HIGH;
+		AntiAliasing antiAliasing = AntiAliasing::MSAA_4X;
+		TextureFilter textureFilter = TextureFilter::ANISOTROPIC_8X;
+		ShadowQuality shadowQuality = ShadowQuality::HIGH;
 
-        /**
-         * @brief Initialize the renderer
-         * @return true if successful
-         */
-        bool Initialize();
+		// Resolution and display
+		uint32_t width = 1920;
+		uint32_t height = 1080;
+		bool fullscreen = false;
+		bool vsync = true;
+		float refreshRate = 60.0f;
 
-        /**
-         * @brief Shutdown the renderer
-         */
-        void Shutdown();
+		// Performance settings
+		uint32_t maxFramesInFlight = 2;
+		uint32_t maxTextureUnits = 32;
+		uint32_t maxVertexAttributes = 16;
+		size_t maxMemoryUsage = 1024 * 1024 * 1024; // 1GB
 
-        /**
-         * @brief Begin a new frame
-         */
-        void BeginFrame();
+		// Advanced features
+		bool enableRayTracing = false;
+		bool enableDLSS = false;
+		bool enableFSR = false;
+		bool enableRTX = false;
+		bool enableVR = false;
+		bool enableAR = false;
 
-        /**
-         * @brief End the current frame
-         */
-        void EndFrame();
+		// Debug features
+		bool enableWireframe = false;
+		bool enableNormals = false;
+		bool enableBounds = false;
+		bool enableStats = true;
+		bool enableProfiling = true;
+	};
 
-        /**
-         * @brief Render all queued commands
-         */
-        void Render();
+	/**
+	 * @brief Renderer statistics structure
+	 */
+	struct RendererStats
+	{
+		// Frame timing
+		float frameTime;
+		float renderTime;
+		float gpuTime;
+		uint32_t fps;
+		uint32_t frameCount;
 
-        /**
-         * @brief Clear the screen
-         * @param color Clear color
-         */
-        void Clear(const Vec4& color = Vec4(0.2f, 0.3f, 0.8f, 1.0f));
+		// Resource counts
+		uint32_t drawCalls;
+		uint32_t triangles;
+		uint32_t vertices;
+		uint32_t shaders;
+		uint32_t textures;
+		uint32_t materials;
+		uint32_t meshes;
 
-        /**
-         * @brief Submit a render command
-         * @param command Render command to submit
-         */
-        void SubmitCommand(const RenderCommand& command);
+		// Memory usage
+		size_t memoryUsed;
+		size_t memoryAvailable;
+		size_t textureMemory;
+		size_t meshMemory;
+		size_t bufferMemory;
 
-        /**
-         * @brief Set the camera for rendering
-         * @param camera Camera to use
-         */
-        void SetCamera(std::shared_ptr<Camera> camera);
+		// GPU stats
+		float gpuTemperature;
+		float gpuUtilization;
+		uint32_t gpuMemoryUsed;
+		uint32_t gpuMemoryTotal;
 
-        /**
-         * @brief Get the current camera
-         * @return Current camera
-         */
-        std::shared_ptr<Camera> GetCamera() const { return m_camera; }
+		// Performance counters
+		uint32_t cullingTests;
+		uint32_t cullingPassed;
+		uint32_t occlusionTests;
+		uint32_t occlusionPassed;
+		uint32_t shadowDrawCalls;
+		uint32_t lightDrawCalls;
+		uint32_t particleDrawCalls;
+	};
 
-        /**
-         * @brief Get render statistics
-         * @return Render statistics
-         */
-        const RenderStats& GetStats() const { return m_stats; }
+	/**
+	 * @brief Render command structure
+	 */
+	struct RenderCommand
+	{
+		uint32_t sortKey;
+		std::function<void()> execute;
+	};
 
-        /**
-         * @brief Set render mode
-         * @param mode Render mode
-         */
-        void SetRenderMode(RenderMode mode) { m_currentMode = mode; }
+	/**
+	 * @brief Main Renderer class
+	 *
+	 * The Renderer is responsible for:
+	 * - Managing graphics API abstraction
+	 * - Handling rendering pipeline
+	 * - Managing resources (textures, shaders, meshes)
+	 * - Implementing rendering techniques (deferred, forward, etc.)
+	 * - Performance optimization and profiling
+	 * - Multi-threading support
+	 */
+	class Renderer
+	{
+	public:
+		/**
+		 * @brief Constructor
+		 */
+		Renderer(const RendererConfig& config = RendererConfig());
 
-        /**
-         * @brief Enable/disable wireframe mode
-         * @param enabled Enable wireframe
-         */
-        void SetWireframeMode(bool enabled);
+		/**
+		 * @brief Destructor
+		 */
+		~Renderer();
 
-        /**
-         * @brief Enable/disable VSync
-         * @param enabled Enable VSync
-         */
-        void SetVSync(bool enabled);
+		/**
+		 * @brief Initialize renderer
+		 */
+		bool Initialize(Window* window);
 
-        /**
-         * @brief Create a basic cube mesh for testing
-         * @param size Cube size
-         * @return Cube mesh
-         */
-        std::shared_ptr<Mesh> CreateCubeMesh(float size = 1.0f);
+		/**
+		 * @brief Shutdown renderer
+		 */
+		void Shutdown();
 
-        /**
-         * @brief Create a block mesh
-         * @param blockType Block type
-         * @return Block mesh
-         */
-        std::shared_ptr<Mesh> CreateBlockMesh(BlockType blockType);
+		/**
+		 * @brief Begin frame rendering
+		 */
+		bool BeginFrame();
 
-        /**
-         * @brief Load a shader
-         * @param name Shader name
-         * @param vertexSource Vertex shader source
-         * @param fragmentSource Fragment shader source
-         * @return Shader instance
-         */
-        std::shared_ptr<Shader> LoadShader(const std::string& name,
-                                          const std::string& vertexSource,
-                                          const std::string& fragmentSource);
+		/**
+		 * @brief End frame rendering
+		 */
+		void EndFrame();
 
-    private:
-        std::shared_ptr<Window> m_window;
-        std::shared_ptr<Camera> m_camera;
-        std::vector<RenderCommand> m_renderQueue;
-        RenderStats m_stats;
-        RenderMode m_currentMode;
-        bool m_initialized;
-        bool m_wireframeMode;
+		/**
+		 * @brief Submit render command
+		 */
+		void SubmitCommand(const RenderCommand& command);
 
-        // OpenGL resources
-        unsigned int m_vao;
-        unsigned int m_vbo;
-        unsigned int m_ebo;
+		/**
+		 * @brief Render frame
+		 */
+		void Render();
 
-        // Default shaders
-        std::shared_ptr<Shader> m_defaultShader;
-        std::shared_ptr<Shader> m_blockShader;
+		/**
+		 * @brief Present frame to screen
+		 */
+		void Present();
 
-        // Mesh cache
-        std::unordered_map<BlockType, std::shared_ptr<Mesh>> m_blockMeshes;
-        std::unordered_map<std::string, std::shared_ptr<Mesh>> m_meshCache;
+		/**
+		 * @brief Resize viewport
+		 */
+		void Resize(uint32_t width, uint32_t height);
 
-        /**
-         * @brief Initialize OpenGL settings
-         */
-        void InitializeOpenGL();
+		/**
+		 * @brief Set camera for rendering
+		 */
+		void SetCamera(Camera* camera);
 
-        /**
-         * @brief Initialize default shaders
-         */
-        void InitializeShaders();
+		/**
+		 * @brief Get current camera
+		 */
+		Camera* GetCamera() const { return m_camera; }
 
-        /**
-         * @brief Setup vertex buffers
-         */
-        void SetupBuffers();
+		/**
+		 * @brief Create shader
+		 */
+		std::shared_ptr<Shader> CreateShader(const std::string& vertexSource,
+			const std::string& fragmentSource,
+			const std::string& geometrySource = "",
+			const std::string& tessControlSource = "",
+			const std::string& tessEvalSource = "");
 
-        /**
-         * @brief Render solid geometry
-         */
-        void RenderSolidPass();
+		/**
+		 * @brief Create texture
+		 */
+		std::shared_ptr<Texture> CreateTexture(const std::string& path);
 
-        /**
-         * @brief Render transparent geometry
-         */
-        void RenderTransparentPass();
+		/**
+		 * @brief Create texture from data
+		 */
+		std::shared_ptr<Texture> CreateTexture(const void* data, uint32_t width,
+			uint32_t height, uint32_t channels);
 
-        /**
-         * @brief Render UI elements
-         */
-        void RenderUIPass();
+		/**
+		 * @brief Create material
+		 */
+		std::shared_ptr<Material> CreateMaterial(const std::string& name);
 
-        /**
-         * @brief Sort render commands by distance
-         */
-        void SortRenderCommands();
+		/**
+		 * @brief Create mesh
+		 */
+		std::shared_ptr<Mesh> CreateMesh();
 
-        /**
-         * @brief Update render statistics
-         */
-        void UpdateStats();
+		/**
+		 * @brief Create render target
+		 */
+		std::shared_ptr<RenderTarget> CreateRenderTarget(uint32_t width, uint32_t height);
 
-        /**
-         * @brief Get default vertex shader source
-         * @return Shader source code
-         */
-        std::string GetDefaultVertexShader();
+		/**
+		 * @brief Get renderer statistics
+		 */
+		const RendererStats& GetStats() const { return m_stats; }
 
-        /**
-         * @brief Get default fragment shader source
-         * @return Shader source code
-         */
-        std::string GetDefaultFragmentShader();
+		/**
+		 * @brief Get renderer configuration
+		 */
+		const RendererConfig& GetConfig() const { return m_config; }
 
-        /**
-         * @brief Get block shader source
-         * @return Shader source code
-         */
-        std::string GetBlockVertexShader();
-        std::string GetBlockFragmentShader();
-    };
+		/**
+		 * @brief Set renderer configuration
+		 */
+		void SetConfig(const RendererConfig& config);
+
+		/**
+		 * @brief Enable/disable wireframe mode
+		 */
+		void SetWireframeMode(bool enabled);
+
+		/**
+		 * @brief Enable/disable VSync
+		 */
+		void SetVSync(bool enabled);
+
+		/**
+		 * @brief Set render quality
+		 */
+		void SetRenderQuality(RenderQuality quality);
+
+		/**
+		 * @brief Take screenshot
+		 */
+		std::vector<uint8_t> TakeScreenshot();
+
+		/**
+		 * @brief Get memory usage
+		 */
+		size_t GetMemoryUsage() const;
+
+		/**
+		 * @brief Check if renderer is initialized
+		 */
+		bool IsInitialized() const { return m_initialized; }
+
+		/**
+		 * @brief Get graphics API
+		 */
+		GraphicsAPI GetAPI() const { return m_config.api; }
+
+		/**
+		 * @brief Get render mode
+		 */
+		RenderMode GetMode() const { return m_config.mode; }
+
+		/**
+		 * @brief Get supported features
+		 */
+		std::vector<std::string> GetSupportedFeatures() const;
+
+		/**
+		 * @brief Check if feature is supported
+		 */
+		bool IsFeatureSupported(const std::string& feature) const;
+
+	private:
+		RendererConfig m_config;
+		RendererStats m_stats;
+		Window* m_window;
+		Camera* m_camera;
+		bool m_initialized;
+
+		// Resource management
+		std::unordered_map<std::string, std::shared_ptr<Shader>> m_shaders;
+		std::unordered_map<std::string, std::shared_ptr<Texture>> m_textures;
+		std::unordered_map<std::string, std::shared_ptr<Material>> m_materials;
+		std::unordered_map<std::string, std::shared_ptr<Mesh>> m_meshes;
+
+		// Render targets
+		std::shared_ptr<RenderTarget> m_mainRenderTarget;
+		std::shared_ptr<RenderTarget> m_shadowRenderTarget;
+		std::shared_ptr<RenderTarget> m_gBufferRenderTarget;
+		std::shared_ptr<RenderTarget> m_postProcessRenderTarget;
+
+		// Render commands
+		std::vector<RenderCommand> m_renderCommands;
+		std::mutex m_commandMutex;
+
+		// Synchronization
+		std::atomic<bool> m_frameActive;
+		std::mutex m_renderMutex;
+
+		/**
+		 * @brief Initialize graphics API
+		 */
+		bool InitializeAPI();
+
+		/**
+		 * @brief Initialize render targets
+		 */
+		bool InitializeRenderTargets();
+
+		/**
+		 * @brief Initialize default shaders
+		 */
+		bool InitializeDefaultShaders();
+
+		/**
+		 * @brief Initialize default materials
+		 */
+		bool InitializeDefaultMaterials();
+
+		/**
+		 * @brief Render shadow maps
+		 */
+		void RenderShadows();
+
+		/**
+		 * @brief Render G-Buffer
+		 */
+		void RenderGBuffer();
+
+		/**
+		 * @brief Render lighting
+		 */
+		void RenderLighting();
+
+		/**
+		 * @brief Render transparent objects
+		 */
+		void RenderTransparent();
+
+		/**
+		 * @brief Render post-processing effects
+		 */
+		void RenderPostProcessing();
+
+		/**
+		 * @brief Render UI elements
+		 */
+		void RenderUI();
+
+		/**
+		 * @brief Sort render commands
+		 */
+		void SortRenderCommands();
+
+		/**
+		 * @brief Execute render commands
+		 */
+		void ExecuteRenderCommands();
+
+		/**
+		 * @brief Update renderer statistics
+		 */
+		void UpdateStats();
+
+		/**
+		 * @brief Cleanup resources
+		 */
+		void CleanupResources();
+
+		/**
+		 * @brief Handle device lost
+		 */
+		void OnDeviceLost();
+
+		/**
+		 * @brief Handle device restored
+		 */
+		void OnDeviceRestored();
+	};
 
 } // namespace VoxelCraft
-
-#endif // VOXELCRAFT_GRAPHICS_RENDERER_HPP

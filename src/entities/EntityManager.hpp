@@ -1,269 +1,379 @@
-/**
- * @file EntityManager.hpp
- * @brief VoxelCraft Entity System - Entity Manager Header
- * @version 1.0.0
- * @author VoxelCraft Team
- *
- * This file defines the EntityManager class for managing entities in the ECS system.
- */
-
-#ifndef VOXELCRAFT_ENTITIES_ENTITY_MANAGER_HPP
-#define VOXELCRAFT_ENTITIES_ENTITY_MANAGER_HPP
-
+#pragma once
+#include "Entity.hpp"
+#include "Component.hpp"
+#include "System.hpp"
 #include <memory>
-#include <unordered_map>
 #include <vector>
-#include <string>
+#include <unordered_map>
+#include <unordered_set>
 #include <queue>
 #include <mutex>
-#include <shared_mutex>
+#include <atomic>
 #include <functional>
-
-#include "Entity.hpp"
+#include <condition_variable>
+#include "core/Logger.hpp"
 
 namespace VoxelCraft {
 
-    /**
-     * @struct EntityManagerStats
-     * @brief Statistics for the entity manager
-     */
-    struct EntityManagerStats {
-        size_t totalEntities;                ///< Total number of entities (active + inactive)
-        size_t activeEntities;               ///< Number of active entities
-        size_t inactiveEntities;             ///< Number of inactive entities
-        size_t pendingDestroyEntities;       ///< Number of entities pending destruction
-        size_t totalComponents;              ///< Total number of components across all entities
-        double averageComponentsPerEntity;   ///< Average number of components per entity
-        size_t destroyedEntities;            ///< Total entities destroyed
-        size_t createdEntities;              ///< Total entities created
-    };
+	class ComponentManager;
+	class SystemManager;
 
-    /**
-     * @typedef EntityFilter
-     * @brief Function type for filtering entities
-     */
-    using EntityFilter = std::function<bool(const Entity*)>;
+	/**
+	 * @brief Entity creation parameters
+	 */
+	struct EntityCreationParams
+	{
+		std::string name;
+		std::string tag;
+		Entity::Type type = Entity::Type::CUSTOM;
+		Entity::Priority priority = Entity::Priority::NORMAL;
+		uint32_t flags = 0;
+		bool deferredCreation = false;
+	};
 
-    /**
-     * @typedef EntityProcessor
-     * @brief Function type for processing entities
-     */
-    using EntityProcessor = std::function<void(Entity*)>;
+	/**
+	 * @brief Entity query structure for filtering entities
+	 */
+	struct EntityQuery
+	{
+		std::vector<std::string> requiredComponents;
+		std::vector<std::string> anyComponents;
+		std::vector<std::string> excludedComponents;
+		std::vector<Entity::Type> types;
+		std::vector<Entity::State> states;
+		std::vector<std::string> tags;
+		std::string namePattern;
+		bool caseSensitive = false;
 
-    /**
-     * @class EntityManager
-     * @brief Manages entities and their lifecycle in the ECS system
-     *
-     * The EntityManager is responsible for:
-     * - Creating and destroying entities
-     * - Managing entity lifecycle
-     * - Providing entity lookup and iteration
-     * - Maintaining entity statistics
-     * - Handling entity cleanup
-     */
-    class EntityManager {
-    public:
-        /**
-         * @brief Constructor
-         */
-        EntityManager();
+		// Performance options
+		bool sortByPriority = false;
+		bool sortByCreationTime = false;
+		size_t maxResults = 0;
+	};
 
-        /**
-         * @brief Destructor
-         */
-        ~EntityManager();
+	/**
+	 * @brief Entity manager statistics
+	 */
+	struct EntityManagerStats
+	{
+		uint64_t totalEntitiesCreated;
+		uint64_t totalEntitiesDestroyed;
+		uint64_t activeEntities;
+		uint64_t inactiveEntities;
+		uint32_t maxEntities;
+		uint32_t entityPoolSize;
+		uint32_t entityPoolUsage;
+		float averageEntityLifetime;
+		uint64_t totalEntityUpdates;
+		float averageUpdateTime;
+		size_t memoryUsage;
+		size_t peakMemoryUsage;
+	};
 
-        /**
-         * @brief Deleted copy constructor
-         */
-        EntityManager(const EntityManager&) = delete;
+	/**
+	 * @brief Entity processing queue item
+	 */
+	struct EntityQueueItem
+	{
+		EntityID entityID;
+		std::function<void(EntityID)> processor;
+		int priority;
+	};
 
-        /**
-         * @brief Deleted copy assignment operator
-         */
-        EntityManager& operator=(const EntityManager&) = delete;
+	/**
+	 * @brief Entity manager for handling entity lifecycle
+	 *
+	 * The EntityManager is responsible for:
+	 * - Creating and destroying entities
+	 * - Managing entity pools for performance
+	 * - Processing entity queries
+	 * - Handling entity serialization
+	 * - Managing entity updates and rendering
+	 * - Coordinating with ComponentManager and SystemManager
+	 */
+	class EntityManager
+	{
+	public:
+		/**
+		 * @brief Entity manager configuration
+		 */
+		struct Config
+		{
+			size_t initialEntityPoolSize = 1000;
+			size_t maxEntityPoolSize = 10000;
+			size_t entityPoolGrowthSize = 500;
+			bool enableEntityPooling = true;
+			bool enableParallelProcessing = true;
+			size_t maxProcessingThreads = 4;
+			size_t maxEntitiesPerFrame = 1000;
+			bool enableSerialization = true;
+			bool enableProfiling = true;
+			float cleanupInterval = 30.0f; // seconds
+		};
 
-        // Entity creation and destruction
+	private:
+		Config m_config;
+		std::unordered_map<EntityID, std::shared_ptr<Entity>> m_entities;
+		std::unordered_map<EntityID, std::shared_ptr<Entity>> m_entityPool;
+		std::queue<EntityID> m_availableIDs;
+		std::vector<EntityID> m_pendingDestruction;
+		std::vector<std::shared_ptr<Entity>> m_pendingCreation;
+		std::queue<EntityQueueItem> m_processingQueue;
 
-        /**
-         * @brief Create a new entity
-         * @param name Entity name
-         * @return Pointer to the created entity
-         */
-        Entity* CreateEntity(const std::string& name = "");
+		ComponentManager* m_componentManager;
+		SystemManager* m_systemManager;
 
-        /**
-         * @brief Destroy an entity
-         * @param entity Entity to destroy
-         * @return true if destroyed, false if not found
-         */
-        bool DestroyEntity(Entity* entity);
+		// Threading
+		std::mutex m_entityMutex;
+		std::mutex m_poolMutex;
+		std::mutex m_processingMutex;
+		std::condition_variable m_processingCV;
+		std::atomic<bool> m_processingActive;
+		std::vector<std::thread> m_processingThreads;
 
-        /**
-         * @brief Destroy an entity by ID
-         * @param entityId Entity ID to destroy
-         * @return true if destroyed, false if not found
-         */
-        bool DestroyEntity(EntityID entityId);
+		// Statistics
+		EntityManagerStats m_stats;
+		std::chrono::high_resolution_clock::time_point m_lastCleanupTime;
 
-        /**
-         * @brief Mark entity for destruction (deferred)
-         * @param entity Entity to mark for destruction
-         * @return true if marked, false if not found
-         */
-        bool MarkEntityForDestruction(Entity* entity);
+		// Entity indexing for queries
+		std::unordered_multimap<std::string, EntityID> m_tagIndex;
+		std::unordered_multimap<Entity::Type, EntityID> m_typeIndex;
+		std::unordered_multimap<Entity::State, EntityID> m_stateIndex;
+		std::unordered_multimap<EntitySignature, EntityID> m_signatureIndex;
 
-        // Entity lookup
+	public:
+		/**
+		 * @brief Constructor
+		 */
+		EntityManager(const Config& config = Config());
 
-        /**
-         * @brief Get entity by ID
-         * @param entityId Entity ID
-         * @return Entity pointer or nullptr if not found
-         */
-        Entity* GetEntity(EntityID entityId);
+		/**
+		 * @brief Destructor
+		 */
+		~EntityManager();
 
-        /**
-         * @brief Get entity by ID (const version)
-         * @param entityId Entity ID
-         * @return Entity pointer or nullptr if not found
-         */
-        const Entity* GetEntity(EntityID entityId) const;
+		/**
+		 * @brief Initialize entity manager
+		 */
+		bool Initialize(ComponentManager* componentManager, SystemManager* systemManager);
 
-        /**
-         * @brief Find entity by name
-         * @param name Entity name
-         * @return Entity pointer or nullptr if not found
-         */
-        Entity* FindEntity(const std::string& name);
+		/**
+		 * @brief Shutdown entity manager
+		 */
+		void Shutdown();
 
-        /**
-         * @brief Check if entity exists
-         * @param entityId Entity ID
-         * @return true if exists, false otherwise
-         */
-        bool EntityExists(EntityID entityId) const;
+		/**
+		 * @brief Update entity manager
+		 */
+		void Update(float deltaTime);
 
-        // Entity iteration and processing
+		/**
+		 * @brief Render entities
+		 */
+		void Render();
 
-        /**
-         * @brief Get all entities
-         * @return Vector of entity pointers
-         */
-        std::vector<Entity*> GetAllEntities();
+		/**
+		 * @brief Create entity
+		 */
+		std::shared_ptr<Entity> CreateEntity(const EntityCreationParams& params = EntityCreationParams());
 
-        /**
-         * @brief Get all active entities
-         * @return Vector of active entity pointers
-         */
-        std::vector<Entity*> GetActiveEntities();
+		/**
+		 * @brief Destroy entity
+		 */
+		void DestroyEntity(EntityID entityID);
 
-        /**
-         * @brief Get entities that match a filter
-         * @param filter Filter function
-         * @return Vector of matching entity pointers
-         */
-        std::vector<Entity*> GetEntities(const EntityFilter& filter);
+		/**
+		 * @brief Get entity by ID
+		 */
+		std::shared_ptr<Entity> GetEntity(EntityID entityID) const;
 
-        /**
-         * @brief Process all active entities
-         * @param processor Processing function
-         */
-        void ProcessActiveEntities(const EntityProcessor& processor);
+		/**
+		 * @brief Check if entity exists
+		 */
+		bool EntityExists(EntityID entityID) const;
 
-        /**
-         * @brief Process entities that match a filter
-         * @param filter Filter function
-         * @param processor Processing function
-         */
-        void ProcessEntities(const EntityFilter& filter, const EntityProcessor& processor);
+		/**
+		 * @brief Get all entities
+		 */
+		std::vector<std::shared_ptr<Entity>> GetAllEntities() const;
 
-        // Entity management
+		/**
+		 * @brief Get entities by query
+		 */
+		std::vector<std::shared_ptr<Entity>> QueryEntities(const EntityQuery& query) const;
 
-        /**
-         * @brief Update all active entities
-         * @param deltaTime Time elapsed since last update
-         */
-        void UpdateEntities(double deltaTime);
+		/**
+		 * @brief Get entities by tag
+		 */
+		std::vector<std::shared_ptr<Entity>> GetEntitiesByTag(const std::string& tag) const;
 
-        /**
-         * @brief Render all active entities
-         */
-        void RenderEntities();
+		/**
+		 * @brief Get entities by type
+		 */
+		std::vector<std::shared_ptr<Entity>> GetEntitiesByType(Entity::Type type) const;
 
-        /**
-         * @brief Cleanup destroyed entities
-         * @return Number of entities cleaned up
-         */
-        size_t CleanupDestroyedEntities();
+		/**
+		 * @brief Get entities by state
+		 */
+		std::vector<std::shared_ptr<Entity>> GetEntitiesByState(Entity::State state) const;
 
-        /**
-         * @brief Clear all entities
-         * @param force Force destruction of all entities
-         */
-        void ClearAllEntities(bool force = false);
+		/**
+		 * @brief Get entities with components
+		 */
+		std::vector<std::shared_ptr<Entity>> GetEntitiesWithComponents(
+			const std::vector<std::string>& componentTypes) const;
 
-        // Statistics and monitoring
+		/**
+		 * @brief Process entities with function
+		 */
+		void ProcessEntities(const std::function<void(EntityID)>& processor, int priority = 0);
 
-        /**
-         * @brief Get entity manager statistics
-         * @return Entity manager statistics
-         */
-        EntityManagerStats GetStatistics() const;
+		/**
+		 * @brief Process entities in parallel
+		 */
+		void ProcessEntitiesParallel(const std::function<void(EntityID)>& processor,
+			size_t maxConcurrency = 0);
 
-        /**
-         * @brief Reset statistics
-         */
-        void ResetStatistics();
+		/**
+		 * @brief Serialize all entities
+		 */
+		std::vector<uint8_t> SerializeAllEntities() const;
 
-        /**
-         * @brief Get total number of entities
-         * @return Total entity count
-         */
-        size_t GetEntityCount() const;
+		/**
+		 * @brief Deserialize entities
+		 */
+		void DeserializeEntities(const std::vector<uint8_t>& data);
 
-        /**
-         * @brief Get number of active entities
-         * @return Active entity count
-         */
-        size_t GetActiveEntityCount() const;
+		/**
+		 * @brief Clear all entities
+		 */
+		void ClearAllEntities();
 
-        /**
-         * @brief Get number of entities pending destruction
-         * @return Pending destruction count
-         */
-        size_t GetPendingDestroyCount() const;
+		/**
+		 * @brief Get entity count
+		 */
+		size_t GetEntityCount() const;
 
-    private:
-        /**
-         * @brief Generate unique entity ID
-         * @return Unique entity ID
-         */
-        EntityID GenerateEntityId();
+		/**
+		 * @brief Get active entity count
+		 */
+		size_t GetActiveEntityCount() const;
 
-        /**
-         * @brief Add entity to internal storage
-         * @param entity Entity to add
-         */
-        void AddEntity(Entity* entity);
+		/**
+		 * @brief Get entity manager statistics
+		 */
+		const EntityManagerStats& GetStatistics() const { return m_stats; }
 
-        /**
-         * @brief Remove entity from internal storage
-         * @param entityId Entity ID to remove
-         */
-        void RemoveEntity(EntityID entityId);
+		/**
+		 * @brief Reset statistics
+		 */
+		void ResetStatistics();
 
-        std::unordered_map<EntityID, std::unique_ptr<Entity>> m_entities;    ///< All entities by ID
-        std::unordered_map<std::string, EntityID> m_entityNames;             ///< Entity names to IDs
-        std::queue<EntityID> m_pendingDestroy;                               ///< Entities pending destruction
+		/**
+		 * @brief Get memory usage
+		 */
+		size_t GetMemoryUsage() const;
 
-        mutable std::shared_mutex m_entityMutex;                             ///< Entity synchronization
-        static std::atomic<EntityID> s_nextEntityId;                         ///< Next entity ID
+		/**
+		 * @brief Set entity manager configuration
+		 */
+		void SetConfig(const Config& config) { m_config = config; }
 
-        // Statistics
-        mutable EntityManagerStats m_stats;                                   ///< Current statistics
-        mutable std::mutex m_statsMutex;                                      ///< Statistics synchronization
-    };
+		/**
+		 * @brief Get entity manager configuration
+		 */
+		const Config& GetConfig() const { return m_config; }
+
+		/**
+		 * @brief Enable/disable entity pooling
+		 */
+		void SetEntityPoolingEnabled(bool enabled) { m_config.enableEntityPooling = enabled; }
+
+		/**
+		 * @brief Check if entity pooling is enabled
+		 */
+		bool IsEntityPoolingEnabled() const { return m_config.enableEntityPooling; }
+
+		/**
+		 * @brief Enable/disable parallel processing
+		 */
+		void SetParallelProcessingEnabled(bool enabled) { m_config.enableParallelProcessing = enabled; }
+
+		/**
+		 * @brief Check if parallel processing is enabled
+		 */
+		bool IsParallelProcessingEnabled() const { return m_config.enableParallelProcessing; }
+
+	private:
+		/**
+		 * @brief Generate new entity ID
+		 */
+		EntityID GenerateEntityID();
+
+		/**
+		 * @brief Create entity instance
+		 */
+		std::shared_ptr<Entity> CreateEntityInstance(EntityID entityID, const EntityCreationParams& params);
+
+		/**
+		 * @brief Process pending creations
+		 */
+		void ProcessPendingCreations();
+
+		/**
+		 * @brief Process pending destructions
+		 */
+		void ProcessPendingDestructions();
+
+		/**
+		 * @brief Perform cleanup operations
+		 */
+		void PerformCleanup();
+
+		/**
+		 * @brief Update entity indices
+		 */
+		void UpdateEntityIndices(EntityID entityID, bool add);
+
+		/**
+		 * @brief Processing thread function
+		 */
+		void ProcessingThreadFunction();
+
+		/**
+		 * @brief Process entity queue item
+		 */
+		void ProcessEntityQueueItem(const EntityQueueItem& item);
+
+		/**
+		 * @brief Update statistics
+		 */
+		void UpdateStatistics();
+
+		/**
+		 * @brief Validate entity
+		 */
+		bool ValidateEntity(EntityID entityID) const;
+
+		/**
+		 * @brief Get entity from pool or create new
+		 */
+		std::shared_ptr<Entity> GetEntityFromPool();
+
+		/**
+		 * @brief Return entity to pool
+		 */
+		void ReturnEntityToPool(std::shared_ptr<Entity> entity);
+
+		/**
+		 * @brief Grow entity pool
+		 */
+		void GrowEntityPool(size_t additionalSize);
+
+		/**
+		 * @brief Cleanup entity pool
+		 */
+		void CleanupEntityPool();
+	};
 
 } // namespace VoxelCraft
-
-#endif // VOXELCRAFT_ENTITIES_ENTITY_MANAGER_HPP

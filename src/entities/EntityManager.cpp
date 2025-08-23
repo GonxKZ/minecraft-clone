@@ -1,360 +1,160 @@
-/**
- * @file EntityManager.cpp
- * @brief VoxelCraft Entity System - Entity Manager Implementation
- * @version 1.0.0
- * @author VoxelCraft Team
- *
- * This file implements the EntityManager class for managing entities in the ECS system.
- */
-
 #include "EntityManager.hpp"
-#include "Logger.hpp"
-
 #include <algorithm>
+#include <regex>
+#include <chrono>
 
 namespace VoxelCraft {
 
-    // Static member initialization
-    std::atomic<EntityID> EntityManager::s_nextEntityId{1};
-
-    EntityManager::EntityManager() {
-        VOXELCRAFT_TRACE("EntityManager instance created");
-        ResetStatistics();
-    }
-
-    EntityManager::~EntityManager() {
-        VOXELCRAFT_TRACE("EntityManager instance destroyed");
-
-        // Clear all entities
-        ClearAllEntities(true);
-    }
-
-    Entity* EntityManager::CreateEntity(const std::string& name) {
-        std::unique_lock<std::shared_mutex> lock(m_entityMutex);
-
-        EntityID entityId = GenerateEntityId();
-        std::string entityName = name.empty() ? "Entity_" + std::to_string(entityId) : name;
-
-        // Check if name already exists
-        if (m_entityNames.count(entityName) > 0) {
-            entityName += "_" + std::to_string(entityId);
-        }
-
-        auto entity = std::make_unique<Entity>(entityId, entityName, this);
-        Entity* entityPtr = entity.get();
-
-        AddEntity(entityPtr);
-        m_entities[entityId] = std::move(entity);
-
-        // Update statistics
-        {
-            std::lock_guard<std::mutex> statsLock(m_statsMutex);
-            m_stats.totalEntities++;
-            m_stats.activeEntities++;
-            m_stats.createdEntities++;
-        }
-
-        VOXELCRAFT_INFO("Entity '{}' (ID: {}) created", entityName, entityId);
-        return entityPtr;
-    }
-
-    bool EntityManager::DestroyEntity(Entity* entity) {
-        if (!entity) {
-            return false;
-        }
-
-        return DestroyEntity(entity->GetID());
-    }
-
-    bool EntityManager::DestroyEntity(EntityID entityId) {
-        std::unique_lock<std::shared_mutex> lock(m_entityMutex);
-
-        auto it = m_entities.find(entityId);
-        if (it == m_entities.end()) {
-            return false;
-        }
-
-        Entity* entity = it->second.get();
-        std::string name = entity->GetName();
-
-        // Mark entity as destroyed
-        entity->SetState(EntityState::Destroyed);
-
-        // Remove from collections
-        RemoveEntity(entityId);
-        m_entities.erase(it);
-
-        // Update statistics
-        {
-            std::lock_guard<std::mutex> statsLock(m_statsMutex);
-            m_stats.totalEntities--;
-            m_stats.destroyedEntities++;
-
-            if (entity->IsActive()) {
-                m_stats.activeEntities--;
-            } else {
-                m_stats.inactiveEntities--;
-            }
-        }
-
-        VOXELCRAFT_INFO("Entity '{}' (ID: {}) destroyed", name, entityId);
-        return true;
-    }
-
-    bool EntityManager::MarkEntityForDestruction(Entity* entity) {
-        if (!entity) {
-            return false;
-        }
-
-        std::unique_lock<std::shared_mutex> lock(m_entityMutex);
-
-        if (entity->GetState() != EntityState::PendingDestroy) {
-            entity->SetState(EntityState::PendingDestroy);
-            m_pendingDestroy.push(entity->GetID());
-
-            // Update statistics
-            {
-                std::lock_guard<std::mutex> statsLock(m_statsMutex);
-                m_stats.pendingDestroyEntities++;
-                if (entity->IsActive()) {
-                    m_stats.activeEntities--;
-                }
-            }
-
-            VOXELCRAFT_TRACE("Entity '{}' (ID: {}) marked for destruction",
-                           entity->GetName(), entity->GetID());
-            return true;
-        }
-
-        return false;
-    }
-
-    Entity* EntityManager::GetEntity(EntityID entityId) {
-        std::shared_lock<std::shared_mutex> lock(m_entityMutex);
-        auto it = m_entities.find(entityId);
-        return it != m_entities.end() ? it->second.get() : nullptr;
-    }
-
-    const Entity* EntityManager::GetEntity(EntityID entityId) const {
-        std::shared_lock<std::shared_mutex> lock(m_entityMutex);
-        auto it = m_entities.find(entityId);
-        return it != m_entities.end() ? it->second.get() : nullptr;
-    }
-
-    Entity* EntityManager::FindEntity(const std::string& name) {
-        std::shared_lock<std::shared_mutex> lock(m_entityMutex);
-        auto it = m_entityNames.find(name);
-        if (it != m_entityNames.end()) {
-            return GetEntity(it->second);
-        }
-        return nullptr;
-    }
-
-    bool EntityManager::EntityExists(EntityID entityId) const {
-        std::shared_lock<std::shared_mutex> lock(m_entityMutex);
-        return m_entities.count(entityId) > 0;
-    }
-
-    std::vector<Entity*> EntityManager::GetAllEntities() {
-        std::shared_lock<std::shared_mutex> lock(m_entityMutex);
-        std::vector<Entity*> entities;
-        entities.reserve(m_entities.size());
-
-        for (const auto& pair : m_entities) {
-            entities.push_back(pair.second.get());
-        }
-
-        return entities;
-    }
-
-    std::vector<Entity*> EntityManager::GetActiveEntities() {
-        std::shared_lock<std::shared_mutex> lock(m_entityMutex);
-        std::vector<Entity*> activeEntities;
-
-        for (const auto& pair : m_entities) {
-            if (pair.second->IsActive()) {
-                activeEntities.push_back(pair.second.get());
-            }
-        }
-
-        return activeEntities;
-    }
-
-    std::vector<Entity*> EntityManager::GetEntities(const EntityFilter& filter) {
-        std::shared_lock<std::shared_mutex> lock(m_entityMutex);
-        std::vector<Entity*> filteredEntities;
-
-        for (const auto& pair : m_entities) {
-            if (filter(pair.second.get())) {
-                filteredEntities.push_back(pair.second.get());
-            }
-        }
-
-        return filteredEntities;
-    }
-
-    void EntityManager::ProcessActiveEntities(const EntityProcessor& processor) {
-        std::vector<Entity*> activeEntities = GetActiveEntities();
-
-        for (Entity* entity : activeEntities) {
-            if (entity->IsActive()) {
-                processor(entity);
-            }
-        }
-    }
-
-    void EntityManager::ProcessEntities(const EntityFilter& filter, const EntityProcessor& processor) {
-        std::vector<Entity*> filteredEntities = GetEntities(filter);
-
-        for (Entity* entity : filteredEntities) {
-            processor(entity);
-        }
-    }
-
-    void EntityManager::UpdateEntities(double deltaTime) {
-        std::vector<Entity*> activeEntities = GetActiveEntities();
-
-        for (Entity* entity : activeEntities) {
-            if (entity->IsActive()) {
-                entity->Update(deltaTime);
-            }
-        }
-    }
-
-    void EntityManager::RenderEntities() {
-        std::vector<Entity*> activeEntities = GetActiveEntities();
-
-        for (Entity* entity : activeEntities) {
-            if (entity->IsActive()) {
-                entity->Render();
-            }
-        }
-    }
-
-    size_t EntityManager::CleanupDestroyedEntities() {
-        size_t cleanedCount = 0;
-
-        while (!m_pendingDestroy.empty()) {
-            EntityID entityId = m_pendingDestroy.front();
-            m_pendingDestroy.pop();
-
-            if (DestroyEntity(entityId)) {
-                cleanedCount++;
-            }
-        }
-
-        if (cleanedCount > 0) {
-            VOXELCRAFT_INFO("Cleaned up {} destroyed entities", cleanedCount);
-        }
-
-        return cleanedCount;
-    }
-
-    void EntityManager::ClearAllEntities(bool force) {
-        std::unique_lock<std::shared_mutex> lock(m_entityMutex);
-
-        size_t entityCount = m_entities.size();
-
-        if (force) {
-            // Force destroy all entities
-            for (auto& pair : m_entities) {
-                pair.second->SetState(EntityState::Destroyed);
-            }
-        } else {
-            // Mark all for destruction
-            for (auto& pair : m_entities) {
-                if (pair.second->GetState() != EntityState::PendingDestroy) {
-                    pair.second->SetState(EntityState::PendingDestroy);
-                    m_pendingDestroy.push(pair.first);
-                }
-            }
-        }
-
-        // Clear collections
-        m_entities.clear();
-        m_entityNames.clear();
-
-        while (!m_pendingDestroy.empty()) {
-            m_pendingDestroy.pop();
-        }
-
-        // Reset statistics
-        ResetStatistics();
-
-        VOXELCRAFT_INFO("Cleared all {} entities", entityCount);
-    }
-
-    EntityManagerStats EntityManager::GetStatistics() const {
-        std::lock_guard<std::mutex> statsLock(m_statsMutex);
-
-        // Update current statistics
-        EntityManagerStats stats = m_stats;
-        stats.totalEntities = m_entities.size();
-        stats.pendingDestroyEntities = m_pendingDestroy.size();
-
-        // Count active/inactive entities
-        size_t activeCount = 0;
-        size_t inactiveCount = 0;
-        size_t totalComponents = 0;
-
-        {
-            std::shared_lock<std::shared_mutex> entityLock(m_entityMutex);
-            for (const auto& pair : m_entities) {
-                const Entity* entity = pair.second.get();
-                if (entity->IsActive()) {
-                    activeCount++;
-                } else {
-                    inactiveCount++;
-                }
-                totalComponents += entity->GetComponentCount();
-            }
-        }
-
-        stats.activeEntities = activeCount;
-        stats.inactiveEntities = inactiveCount;
-        stats.totalComponents = totalComponents;
-        stats.averageComponentsPerEntity = stats.totalEntities > 0 ?
-            static_cast<double>(totalComponents) / stats.totalEntities : 0.0;
-
-        return stats;
-    }
-
-    void EntityManager::ResetStatistics() {
-        std::lock_guard<std::mutex> statsLock(m_statsMutex);
-        m_stats = EntityManagerStats{};
-    }
-
-    size_t EntityManager::GetEntityCount() const {
-        std::shared_lock<std::shared_mutex> lock(m_entityMutex);
-        return m_entities.size();
-    }
-
-    size_t EntityManager::GetActiveEntityCount() const {
-        std::shared_lock<std::shared_mutex> lock(m_entityMutex);
-        return std::count_if(m_entities.begin(), m_entities.end(),
-            [](const auto& pair) { return pair.second->IsActive(); });
-    }
-
-    size_t EntityManager::GetPendingDestroyCount() const {
-        return m_pendingDestroy.size();
-    }
-
-    EntityID EntityManager::GenerateEntityId() {
-        return s_nextEntityId.fetch_add(1, std::memory_order_relaxed);
-    }
-
-    void EntityManager::AddEntity(Entity* entity) {
-        m_entities[entity->GetID()] = std::unique_ptr<Entity>(entity);
-        m_entityNames[entity->GetName()] = entity->GetID();
-    }
-
-    void EntityManager::RemoveEntity(EntityID entityId) {
-        auto it = m_entities.find(entityId);
-        if (it != m_entities.end()) {
-            std::string name = it->second->GetName();
-            m_entityNames.erase(name);
-            m_entities.erase(it);
-        }
-    }
+	EntityManager::EntityManager(const Config& config)
+		: m_config(config)
+		, m_componentManager(nullptr)
+		, m_systemManager(nullptr)
+		, m_processingActive(false)
+		, m_stats({0, 0, 0, 0, 0, 0, 0, 0.0f, 0, 0.0f, 0, 0})
+	{
+		m_lastCleanupTime = std::chrono::high_resolution_clock::now();
+
+		// Initialize entity pool
+		if (m_config.enableEntityPooling) {
+			m_entityPool.reserve(m_config.initialEntityPoolSize);
+			for (size_t i = 0; i < m_config.initialEntityPoolSize; ++i) {
+				m_availableIDs.push(i + 1);
+			}
+		}
+
+		VOXEL_LOG_INFO("EntityManager initialized with pool size: {}", m_config.initialEntityPoolSize);
+	}
+
+	EntityManager::~EntityManager()
+	{
+		Shutdown();
+	}
+
+	bool EntityManager::Initialize(ComponentManager* componentManager, SystemManager* systemManager)
+	{
+		m_componentManager = componentManager;
+		m_systemManager = systemManager;
+
+		// Start processing threads
+		if (m_config.enableParallelProcessing) {
+			m_processingActive.store(true);
+			for (size_t i = 0; i < m_config.maxProcessingThreads; ++i) {
+				m_processingThreads.emplace_back(&EntityManager::ProcessingThreadFunction, this);
+			}
+			VOXEL_LOG_INFO("Started {} processing threads", m_config.maxProcessingThreads);
+		}
+
+		VOXEL_LOG_INFO("EntityManager initialized successfully");
+		return true;
+	}
+
+	void EntityManager::Shutdown()
+	{
+		VOXEL_LOG_INFO("Shutting down EntityManager...");
+
+		// Stop processing threads
+		if (m_processingActive.load()) {
+			m_processingActive.store(false);
+			m_processingCV.notify_all();
+
+			for (auto& thread : m_processingThreads) {
+				if (thread.joinable()) {
+					thread.join();
+				}
+			}
+			m_processingThreads.clear();
+			VOXEL_LOG_INFO("Processing threads stopped");
+		}
+
+		// Clear all entities
+		ClearAllEntities();
+
+		// Clear entity pool
+		{
+			std::lock_guard<std::mutex> lock(m_poolMutex);
+			m_entityPool.clear();
+			while (!m_availableIDs.empty()) {
+				m_availableIDs.pop();
+			}
+		}
+
+		// Clear indices
+		m_tagIndex.clear();
+		m_typeIndex.clear();
+		m_stateIndex.clear();
+		m_signatureIndex.clear();
+
+		VOXEL_LOG_INFO("EntityManager shutdown complete");
+	}
+
+	void EntityManager::Update(float deltaTime)
+	{
+		auto startTime = std::chrono::high_resolution_clock::now();
+
+		// Process pending operations
+		ProcessPendingCreations();
+		ProcessPendingDestructions();
+
+		// Update entities
+		std::vector<EntityID> entitiesToUpdate;
+		{
+			std::lock_guard<std::mutex> lock(m_entityMutex);
+			for (const auto& pair : m_entities) {
+				if (pair.second && pair.second->IsActive()) {
+					entitiesToUpdate.push_back(pair.first);
+				}
+			}
+		}
+
+		// Update entities with limit per frame
+		size_t updateCount = 0;
+		for (EntityID entityID : entitiesToUpdate) {
+			if (updateCount >= m_config.maxEntitiesPerFrame) {
+				break;
+			}
+
+			auto entity = GetEntity(entityID);
+			if (entity) {
+				entity->Update(deltaTime);
+				updateCount++;
+			}
+		}
+
+		// Perform periodic cleanup
+		auto currentTime = std::chrono::high_resolution_clock::now();
+		float timeSinceCleanup = std::chrono::duration_cast<std::chrono::seconds>(
+			currentTime - m_lastCleanupTime).count();
+
+		if (timeSinceCleanup >= m_config.cleanupInterval) {
+			PerformCleanup();
+			m_lastCleanupTime = currentTime;
+		}
+
+		// Update statistics
+		auto endTime = std::chrono::high_resolution_clock::now();
+		float updateTime = std::chrono::duration_cast<std::chrono::microseconds>(
+			endTime - startTime).count() / 1000.0f;
+
+		UpdateStatistics();
+		m_stats.averageUpdateTime = (m_stats.averageUpdateTime * m_stats.totalEntityUpdates +
+			updateTime) / (m_stats.totalEntityUpdates + 1);
+		m_stats.totalEntityUpdates++;
+	}
+
+	EntityID EntityManager::GenerateEntityID()
+	{
+		if (m_config.enableEntityPooling && !m_availableIDs.empty()) {
+			std::lock_guard<std::mutex> lock(m_poolMutex);
+			if (!m_availableIDs.empty()) {
+				EntityID id = m_availableIDs.front();
+				m_availableIDs.pop();
+				return id;
+			}
+		}
+
+		// Generate new ID
+		static EntityID nextID = 1;
+		return nextID++;
+	}
 
 } // namespace VoxelCraft

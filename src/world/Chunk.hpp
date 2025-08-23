@@ -1,384 +1,354 @@
-/**
- * @file Chunk.hpp
- * @brief VoxelCraft World System - Chunk Implementation (Minecraft-like)
- * @version 1.0.0
- * @author VoxelCraft Team
- *
- * Chunk system for infinite world generation (16x16x16 blocks per chunk)
- */
-
-#ifndef VOXELCRAFT_WORLD_CHUNK_HPP
-#define VOXELCRAFT_WORLD_CHUNK_HPP
-
-#include <array>
-#include <vector>
+#pragma once
 #include <memory>
-#include <unordered_set>
+#include <vector>
+#include <array>
 #include <atomic>
 #include <mutex>
-
-#include "../blocks/Block.hpp"
+#include <cstdint>
+#include "core/Logger.hpp"
+#include "world/ChunkSystem.hpp"
 
 namespace VoxelCraft {
 
-    // Forward declarations
-    struct Vec3;
-    class EntityManager;
-    class RenderComponent;
+	class Block;
+	class Biome;
+	class World;
 
-    /**
-     * @struct ChunkPosition
-     * @brief Position of a chunk in the world (chunk coordinates, not block coordinates)
-     */
-    struct ChunkPosition {
-        int x, z;  // Chunk coordinates (each chunk is 16x16x16 blocks)
+	/**
+	 * @brief Individual chunk class representing 16x16x16 blocks
+	 *
+	 * The Chunk class manages:
+	 * - Block storage and access
+	 * - Lighting information
+	 * - Biome data
+	 * - Level of Detail (LOD)
+	 * - Serialization/Deserialization
+	 * - Memory management
+	 * - Rendering preparation
+	 */
+	class Chunk
+	{
+	public:
+		static constexpr uint8_t CHUNK_SIZE = 16;
+		static constexpr uint8_t CHUNK_HEIGHT = 256;
+		static constexpr uint32_t CHUNK_VOLUME = CHUNK_SIZE * CHUNK_HEIGHT * CHUNK_SIZE;
 
-        ChunkPosition() : x(0), z(0) {}
-        ChunkPosition(int x_, int z_) : x(x_), z(z_) {}
+		/**
+		 * @brief Constructor
+		 */
+		Chunk(const ChunkCoord& coord);
 
-        bool operator==(const ChunkPosition& other) const {
-            return x == other.x && z == other.z;
-        }
+		/**
+		 * @brief Destructor
+		 */
+		~Chunk();
 
-        bool operator!=(const ChunkPosition& other) const {
-            return !(*this == other);
-        }
+		/**
+		 * @brief Get chunk coordinate
+		 */
+		const ChunkCoord& GetCoord() const { return m_coord; }
 
-        ChunkPosition operator+(const ChunkPosition& other) const {
-            return ChunkPosition(x + other.x, z + other.z);
-        }
+		/**
+		 * @brief Get chunk state
+		 */
+		ChunkState GetState() const { return m_state.load(); }
 
-        ChunkPosition operator-(const ChunkPosition& other) const {
-            return ChunkPosition(x - other.x, z - other.z);
-        }
+		/**
+		 * @brief Set chunk state
+		 */
+		void SetState(ChunkState state) { m_state.store(state); }
 
-        // Hash function for use in unordered containers
-        struct Hash {
-            size_t operator()(const ChunkPosition& pos) const {
-                return std::hash<int>()(pos.x) ^ (std::hash<int>()(pos.z) << 1);
-            }
-        };
+		/**
+		 * @brief Get LOD level
+		 */
+		LODLevel GetLODLevel() const { return m_lodLevel.load(); }
 
-        // Manhattan distance
-        int distance(const ChunkPosition& other) const {
-            return std::abs(x - other.x) + std::abs(z - other.z);
-        }
+		/**
+		 * @brief Set LOD level
+		 */
+		void SetLODLevel(LODLevel level);
 
-        // Chebyshev distance (max of x and z difference)
-        int chebyshevDistance(const ChunkPosition& other) const {
-            return std::max(std::abs(x - other.x), std::abs(z - other.z));
-        }
-    };
+		/**
+		 * @brief Check if chunk is modified
+		 */
+		bool IsModified() const { return m_modified.load(); }
 
-    /**
-     * @enum ChunkState
-     * @brief Current state of a chunk
-     */
-    enum class ChunkState {
-        EMPTY,           // Chunk not loaded
-        LOADING,         // Currently being loaded
-        LOADED,          // Loaded but not generated
-        GENERATING,      // Terrain being generated
-        GENERATED,       // Terrain generated
-        POPULATING,      // Being populated with structures/features
-        POPULATED,       // Populated with structures
-        LIGHTING,        // Light calculations in progress
-        LIGHTED,         // Light calculations complete
-        RENDERING,       // Render data being prepared
-        RENDER_READY,    // Ready for rendering
-        UNLOADING        // Being unloaded
-    };
+		/**
+		 * @brief Set modification flag
+		 */
+		void SetModified(bool modified) { m_modified.store(modified); }
 
-    /**
-     * @struct BlockPosition
-     * @brief Position of a block within a chunk (0-15 for x, y, z)
-     */
-    struct BlockPosition {
-        uint8_t x, y, z;  // Local chunk coordinates (0-15)
+		/**
+		 * @brief Get block at local coordinates
+		 */
+		std::shared_ptr<Block> GetBlock(uint8_t x, uint8_t y, uint8_t z) const;
 
-        BlockPosition() : x(0), y(0), z(0) {}
-        BlockPosition(uint8_t x_, uint8_t y_, uint8_t z_) : x(x_), y(y_), z(z_) {}
+		/**
+		 * @brief Set block at local coordinates
+		 */
+		void SetBlock(uint8_t x, uint8_t y, uint8_t z, std::shared_ptr<Block> block);
 
-        bool operator==(const BlockPosition& other) const {
-            return x == other.x && y == other.y && z == other.z;
-        }
+		/**
+		 * @brief Get block at local coordinates (fast access)
+		 */
+		uint16_t GetBlockId(uint8_t x, uint8_t y, uint8_t z) const;
 
-        bool operator!=(const BlockPosition& other) const {
-            return !(*this == other);
-        }
+		/**
+		 * @brief Set block ID at local coordinates (fast access)
+		 */
+		void SetBlockId(uint8_t x, uint8_t y, uint8_t z, uint16_t blockId);
 
-        // Convert to world position given chunk position
-        Vec3 toWorldPosition(const ChunkPosition& chunkPos) const {
-            return Vec3(
-                static_cast<float>(chunkPos.x * 16 + x),
-                static_cast<float>(y),
-                static_cast<float>(chunkPos.z * 16 + z)
-            );
-        }
+		/**
+		 * @brief Get light level at coordinates
+		 */
+		uint8_t GetLightLevel(uint8_t x, uint8_t y, uint8_t z) const;
 
-        // Check if position is within chunk bounds
-        bool isValid() const {
-            return x < 16 && y < 16 && z < 16;
-        }
+		/**
+		 * @brief Set light level at coordinates
+		 */
+		void SetLightLevel(uint8_t x, uint8_t y, uint8_t z, uint8_t level);
 
-        // Linear index for array storage
-        size_t toIndex() const {
-            return x + (y * 16) + (z * 16 * 16);
-        }
+		/**
+		 * @brief Get sky light level
+		 */
+		uint8_t GetSkyLight(uint8_t x, uint8_t y, uint8_t z) const;
 
-        // Create from index
-        static BlockPosition fromIndex(size_t index) {
-            uint8_t z = index / (16 * 16);
-            index %= (16 * 16);
-            uint8_t y = index / 16;
-            uint8_t x = index % 16;
-            return BlockPosition(x, y, z);
-        }
-    };
+		/**
+		 * @brief Set sky light level
+		 */
+		void SetSkyLight(uint8_t x, uint8_t y, uint8_t z, uint8_t level);
 
-    /**
-     * @class Chunk
-     * @brief 16x16x16 block chunk representing part of the world (Minecraft-like)
-     */
-    class Chunk {
-    public:
-        // Constants
-        static constexpr int CHUNK_SIZE = 16;
-        static constexpr int CHUNK_HEIGHT = 16;
-        static constexpr int CHUNK_VOLUME = CHUNK_SIZE * CHUNK_HEIGHT * CHUNK_SIZE;
-        static constexpr int SEA_LEVEL = 8;  // Sea level in chunk coordinates
+		/**
+		 * @brief Get biome at coordinates
+		 */
+		std::shared_ptr<Biome> GetBiome(uint8_t x, uint8_t z) const;
 
-        /**
-         * @brief Constructor
-         * @param position Chunk position in world
-         */
-        explicit Chunk(const ChunkPosition& position);
+		/**
+		 * @brief Set biome at coordinates
+		 */
+		void SetBiome(uint8_t x, uint8_t z, std::shared_ptr<Biome> biome);
 
-        /**
-         * @brief Destructor
-         */
-        ~Chunk();
+		/**
+		 * @brief Get height at coordinates
+		 */
+		uint8_t GetHeight(uint8_t x, uint8_t z) const;
 
-        /**
-         * @brief Get chunk position
-         * @return Chunk position
-         */
-        const ChunkPosition& GetPosition() const { return m_position; }
+		/**
+		 * @brief Set height at coordinates
+		 */
+		void SetHeight(uint8_t x, uint8_t z, uint8_t height);
 
-        /**
-         * @brief Get chunk state
-         * @return Current chunk state
-         */
-        ChunkState GetState() const { return m_state.load(); }
+		/**
+		 * @brief Check if block is air
+		 */
+		bool IsAir(uint8_t x, uint8_t y, uint8_t z) const;
 
-        /**
-         * @brief Set chunk state
-         * @param state New state
-         */
-        void SetState(ChunkState state) { m_state.store(state); }
+		/**
+		 * @brief Check if block is solid
+		 */
+		bool IsSolid(uint8_t x, uint8_t y, uint8_t z) const;
 
-        /**
-         * @brief Get block at local position
-         * @param pos Local block position (0-15)
-         * @return Block type at position
-         */
-        BlockType GetBlock(const BlockPosition& pos) const;
+		/**
+		 * @brief Check if block is transparent
+		 */
+		bool IsTransparent(uint8_t x, uint8_t y, uint8_t z) const;
 
-        /**
-         * @brief Set block at local position
-         * @param pos Local block position (0-15)
-         * @param type New block type
-         * @return true if block was set, false if position invalid
-         */
-        bool SetBlock(const BlockPosition& pos, BlockType type);
+		/**
+		 * @brief Get memory usage
+		 */
+		size_t GetMemoryUsage() const;
 
-        /**
-         * @brief Get block at world position
-         * @param worldX World X coordinate
-         * @param worldY World Y coordinate
-         * @param worldZ World Z coordinate
-         * @return Block type at position
-         */
-        BlockType GetBlockAt(int worldX, int worldY, int worldZ) const;
+		/**
+		 * @brief Serialize chunk data
+		 */
+		std::vector<uint8_t> Serialize() const;
 
-        /**
-         * @brief Set block at world position
-         * @param worldX World X coordinate
-         * @param worldY World Y coordinate
-         * @param worldZ World Z coordinate
-         * @param type New block type
-         * @return true if block was set, false if position invalid
-         */
-        bool SetBlockAt(int worldX, int worldY, int worldZ, BlockType type);
+		/**
+		 * @brief Deserialize chunk data
+		 */
+		bool Deserialize(const std::vector<uint8_t>& data);
 
-        /**
-         * @brief Convert world position to local chunk position
-         * @param worldX World X coordinate
-         * @param worldY World Y coordinate
-         * @param worldZ World Z coordinate
-         * @return Local block position
-         */
-        BlockPosition WorldToLocal(int worldX, int worldY, int worldZ) const;
+		/**
+		 * @brief Render the chunk
+		 */
+		void Render();
 
-        /**
-         * @brief Check if chunk contains world position
-         * @param worldX World X coordinate
-         * @param worldY World Y coordinate
-         * @param worldZ World Z coordinate
-         * @return true if position is within this chunk
-         */
-        bool ContainsWorldPosition(int worldX, int worldY, int worldZ) const;
+		/**
+		 * @brief Update chunk (lighting, etc.)
+		 */
+		void Update(float deltaTime);
 
-        /**
-         * @brief Generate terrain for this chunk
-         * @param seed World seed
-         * @return true if generation successful
-         */
-        bool GenerateTerrain(int seed);
+		/**
+		 * @brief Generate mesh for rendering
+		 */
+		void GenerateMesh();
 
-        /**
-         * @brief Populate chunk with structures and features
-         * @param seed World seed
-         * @return true if population successful
-         */
-        bool PopulateChunk(int seed);
+		/**
+		 * @brief Clear chunk data
+		 */
+		void Clear();
 
-        /**
-         * @brief Calculate lighting for the chunk
-         * @return true if lighting calculation successful
-         */
-        bool CalculateLighting();
+		/**
+		 * @brief Check if chunk is empty (all air)
+		 */
+		bool IsEmpty() const;
 
-        /**
-         * @brief Get light level at position
-         * @param pos Local block position
-         * @return Light level (0-15)
-         */
-        uint8_t GetLightLevel(const BlockPosition& pos) const;
+		/**
+		 * @brief Get chunk bounds
+		 */
+		void GetBounds(int32_t& minX, int32_t& minY, int32_t& minZ,
+			int32_t& maxX, int32_t& maxY, int32_t& maxZ) const;
 
-        /**
-         * @brief Set light level at position
-         * @param pos Local block position
-         * @param level Light level (0-15)
-         */
-        void SetLightLevel(const BlockPosition& pos, uint8_t level);
+		/**
+		 * @brief Get world coordinates from local coordinates
+		 */
+		WorldCoord GetWorldCoord(uint8_t x, uint8_t y, uint8_t z) const;
 
-        /**
-         * @brief Check if chunk is modified (has changes from generation)
-         * @return true if chunk has been modified
-         */
-        bool IsModified() const { return m_isModified; }
+		/**
+		 * @brief Check if coordinates are valid
+		 */
+		static bool IsValidCoord(uint8_t x, uint8_t y, uint8_t z);
 
-        /**
-         * @brief Mark chunk as modified
-         */
-        void SetModified(bool modified = true) { m_isModified = modified; }
+		/**
+		 * @brief Get index from coordinates
+		 */
+		static uint32_t GetIndex(uint8_t x, uint8_t y, uint8_t z);
 
-        /**
-         * @brief Get number of solid blocks in chunk
-         * @return Number of solid blocks
-         */
-        size_t GetSolidBlockCount() const { return m_solidBlockCount; }
+		/**
+		 * @brief Get coordinates from index
+		 */
+		static void GetCoordFromIndex(uint32_t index, uint8_t& x, uint8_t& y, uint8_t& z);
 
-        /**
-         * @brief Check if chunk is empty (only air blocks)
-         * @return true if chunk is empty
-         */
-        bool IsEmpty() const { return m_solidBlockCount == 0; }
+	private:
+		ChunkCoord m_coord;
+		std::atomic<ChunkState> m_state;
+		std::atomic<LODLevel> m_lodLevel;
+		std::atomic<bool> m_modified;
+		mutable std::mutex m_dataMutex;
 
-        /**
-         * @brief Get biome at position
-         * @param pos Local block position
-         * @return Biome identifier
-         */
-        std::string GetBiome(const BlockPosition& pos) const;
+		// Block data storage (16x256x16 = 65,536 blocks)
+		// Using uint16_t for block IDs to support up to 65,536 different block types
+		std::unique_ptr<uint16_t[]> m_blocks;
 
-        /**
-         * @brief Set biome at position
-         * @param pos Local block position
-         * @param biome Biome identifier
-         */
-        void SetBiome(const BlockPosition& pos, const std::string& biome);
+		// Lighting data (4 bits per level, packed as uint8_t)
+		// Lower 4 bits: block light, Upper 4 bits: sky light
+		std::unique_ptr<uint8_t[]> m_lighting;
 
-        /**
-         * @brief Clear all blocks (set to air)
-         */
-        void Clear();
+		// Height map (16x16)
+		std::unique_ptr<uint8_t[]> m_heightMap;
 
-        /**
-         * @brief Get memory usage of chunk
-         * @return Memory usage in bytes
-         */
-        size_t GetMemoryUsage() const;
+		// Biome data (16x16, one biome per column)
+		std::vector<std::shared_ptr<Biome>> m_biomes;
 
-        /**
-         * @brief Create render component for this chunk
-         * @return Render component for the chunk
-         */
-        std::shared_ptr<RenderComponent> CreateRenderComponent();
+		// Render data
+		std::vector<float> m_vertexBuffer;
+		std::vector<uint32_t> m_indexBuffer;
+		std::atomic<bool> m_meshDirty;
+		uint32_t m_vertexArrayObject;
+		uint32_t m_vertexBufferObject;
+		uint32_t m_indexBufferObject;
 
-        /**
-         * @brief Update render component with current block data
-         * @param renderComponent Render component to update
-         */
-        void UpdateRenderComponent(std::shared_ptr<RenderComponent> renderComponent);
+		// Statistics
+		uint32_t m_solidBlockCount;
+		uint32_t m_airBlockCount;
+		uint32_t m_transparentBlockCount;
 
-    private:
-        ChunkPosition m_position;                          ///< Chunk position in world
-        std::atomic<ChunkState> m_state;                   ///< Current chunk state
-        std::array<BlockType, CHUNK_VOLUME> m_blocks;      ///< Block data (16x16x16)
-        std::array<uint8_t, CHUNK_VOLUME> m_lightLevels;   ///< Light levels (16x16x16)
-        std::array<std::string, CHUNK_SIZE * CHUNK_SIZE> m_biomes; ///< Biome data (16x16)
+		/**
+		 * @brief Initialize chunk data
+		 */
+		void Initialize();
 
-        mutable std::mutex m_chunkMutex;                   ///< Thread safety for chunk operations
-        bool m_isModified;                                 ///< Modification flag
-        size_t m_solidBlockCount;                          ///< Number of solid blocks
+		/**
+		 * @brief Allocate memory for chunk data
+		 */
+		void AllocateData();
 
-        /**
-         * @brief Generate basic terrain (hills, valleys)
-         * @param seed World seed
-         */
-        void GenerateBasicTerrain(int seed);
+		/**
+		 * @brief Free memory
+		 */
+		void FreeData();
 
-        /**
-         * @brief Generate caves and underground structures
-         * @param seed World seed
-         */
-        void GenerateCaves(int seed);
+		/**
+		 * @brief Calculate lighting
+		 */
+		void CalculateLighting();
 
-        /**
-         * @brief Generate ore deposits
-         * @param seed World seed
-         */
-        void GenerateOres(int seed);
+		/**
+		 * @brief Propagate light
+		 */
+		void PropagateLight();
 
-        /**
-         * @brief Place trees and vegetation
-         * @param seed World seed
-         */
-        void PlaceVegetation(int seed);
+		/**
+		 * @brief Update height map
+		 */
+		void UpdateHeightMap();
 
-        /**
-         * @brief Calculate sky light for the chunk
-         */
-        void CalculateSkyLight();
+		/**
+		 * @brief Generate optimized mesh based on LOD
+		 */
+		void GenerateLODMesh();
 
-        /**
-         * @brief Calculate block light from light sources
-         */
-        void CalculateBlockLight();
+		/**
+		 * @brief Add face to mesh
+		 */
+		void AddFaceToMesh(uint8_t x, uint8_t y, uint8_t z, uint8_t face);
 
-        /**
-         * @brief Propagate light through the chunk
-         */
-        void PropagateLight();
+		/**
+		 * @brief Check if face should be rendered
+		 */
+		bool ShouldRenderFace(uint8_t x, uint8_t y, uint8_t z, uint8_t face) const;
 
-        /**
-         * @brief Update solid block count
-         */
-        void UpdateSolidBlockCount();
-    };
+		/**
+		 * @brief Get neighboring block
+		 */
+		std::shared_ptr<Block> GetNeighborBlock(int8_t x, int8_t y, int8_t z) const;
+
+		/**
+		 * @brief Update block statistics
+		 */
+		void UpdateBlockStats();
+
+		/**
+		 * @brief Compress block data
+		 */
+		std::vector<uint8_t> CompressBlockData() const;
+
+		/**
+		 * @brief Decompress block data
+		 */
+		bool DecompressBlockData(const std::vector<uint8_t>& data);
+
+		/**
+		 * @brief Compress lighting data
+		 */
+		std::vector<uint8_t> CompressLightingData() const;
+
+		/**
+		 * @brief Decompress lighting data
+		 */
+		bool DecompressLightingData(const std::vector<uint8_t>& data);
+
+		/**
+		 * @brief Compress height map
+		 */
+		std::vector<uint8_t> CompressHeightMap() const;
+
+		/**
+		 * @brief Decompress height map
+		 */
+		bool DecompressHeightMap(const std::vector<uint8_t>& data);
+
+		// Constants for face directions
+		static constexpr uint8_t FACE_FRONT = 0;
+		static constexpr uint8_t FACE_BACK = 1;
+		static constexpr uint8_t FACE_LEFT = 2;
+		static constexpr uint8_t FACE_RIGHT = 3;
+		static constexpr uint8_t FACE_TOP = 4;
+		static constexpr uint8_t FACE_BOTTOM = 5;
+
+		// Constants for lighting
+		static constexpr uint8_t MAX_LIGHT_LEVEL = 15;
+		static constexpr uint8_t SUNLIGHT_LEVEL = 15;
+	};
 
 } // namespace VoxelCraft
-
-#endif // VOXELCRAFT_WORLD_CHUNK_HPP
