@@ -1,391 +1,226 @@
-/**
- * @file Inventory.cpp
- * @brief VoxelCraft Inventory System - Inventory Implementation
- * @version 1.0.0
- * @author VoxelCraft Team
- */
-
 #include "Inventory.hpp"
-#include "../crafting/CraftingTable.hpp"
+#include "entities/PlayerEntity.hpp"
 #include <algorithm>
+#include <sstream>
+#include <iostream>
 
 namespace VoxelCraft {
 
-    // Inventory Implementation
-    Inventory::Inventory(InventoryType type, int size)
-        : m_type(type)
-        , m_slots(size)
+    // ItemStack implementation
+    ItemStack::ItemStack(int id, int cnt, int maxStack, int meta, const std::string& name)
+        : itemID(id), count(cnt), maxStackSize(maxStack), metadata(meta), itemName(name)
     {
-        if (size <= 0) {
-            throw std::invalid_argument("Inventory size must be positive");
+    }
+
+    bool ItemStack::CanStackWith(const ItemStack& other) const {
+        if (itemID != other.itemID) return false;
+        if (metadata != other.metadata) return false;
+        return count + other.count <= maxStackSize;
+    }
+
+    int ItemStack::GetRemainingSpace() const {
+        return maxStackSize - count;
+    }
+
+    std::string ItemStack::ToString() const {
+        std::stringstream ss;
+        ss << "ItemStack[ID=" << itemID << ", Count=" << count << "/" << maxStackSize << "]";
+        return ss.str();
+    }
+
+    // Inventory implementation
+    Inventory::Inventory(InventoryType type, int size)
+        : m_type(type), m_size(size), m_maxStackSize(64), m_slots(size) {
+        for (int i = 0; i < size; ++i) {
+            m_slots[i].slotIndex = i;
         }
     }
 
-    const ItemStack& Inventory::GetItem(int slot) const {
-        if (!IsValidSlot(slot)) {
-            static ItemStack empty;
-            return empty;
-        }
-        return m_slots[slot].item;
+    Inventory::~Inventory() {
+        ClearAll();
     }
 
-    bool Inventory::SetItem(int slot, const ItemStack& item) {
-        if (!IsValidSlot(slot)) {
-            return false;
-        }
+    bool Inventory::IsValidSlot(int slot) const {
+        return slot >= 0 && slot < m_size;
+    }
 
-        if (m_slots[slot].locked && !item.IsEmpty()) {
-            return false;
-        }
+    bool Inventory::SetItem(int slot, const ItemStack& itemStack) {
+        if (!IsValidSlot(slot)) return false;
 
-        ItemStack oldItem = m_slots[slot].item;
-        m_slots[slot].item = item;
+        auto oldStack = m_slots[slot].itemStack;
+        m_slots[slot].itemStack = itemStack;
+        NotifyChange(slot, oldStack, itemStack);
 
-        NotifySlotChange(slot, oldItem, item);
         return true;
     }
 
-    int Inventory::AddItem(const ItemStack& item) {
-        if (item.IsEmpty()) {
-            return 0;
-        }
+    ItemStack Inventory::GetItem(int slot) const {
+        if (!IsValidSlot(slot)) return ItemStack();
+        return m_slots[slot].itemStack;
+    }
 
-        int remaining = item.count;
+    bool Inventory::AddItem(const ItemStack& itemStack) {
+        if (itemStack.IsEmpty()) return true;
 
-        // First, try to add to existing stacks
-        for (int i = 0; i < GetSize() && remaining > 0; ++i) {
-            if (m_slots[i].CanHoldItem(ItemStack(item.item, remaining, item.nbt))) {
-                int space = m_slots[i].maxStackSize - m_slots[i].item.count;
-                int toAdd = std::min(remaining, space);
-
-                if (m_slots[i].IsEmpty()) {
-                    m_slots[i].item = ItemStack(item.item, toAdd, item.nbt);
-                } else {
-                    m_slots[i].item.count += toAdd;
+        // First, try to stack with existing items
+        for (int i = 0; i < m_size; ++i) {
+            auto& slot = m_slots[i];
+            if (slot.itemStack.CanStackWith(itemStack)) {
+                int space = slot.itemStack.GetRemainingSpace();
+                if (space > 0) {
+                    auto oldStack = slot.itemStack;
+                    slot.itemStack.count += std::min(itemStack.count, space);
+                    NotifyChange(i, oldStack, slot.itemStack);
+                    return true;
                 }
-
-                remaining -= toAdd;
-                NotifySlotChange(i, ItemStack(), m_slots[i].item);
             }
         }
 
-        // Then, try to add to empty slots
-        for (int i = 0; i < GetSize() && remaining > 0; ++i) {
-            if (m_slots[i].IsEmpty()) {
-                int toAdd = std::min(remaining, m_slots[i].maxStackSize);
-                m_slots[i].item = ItemStack(item.item, toAdd, item.nbt);
-                remaining -= toAdd;
-                NotifySlotChange(i, ItemStack(), m_slots[i].item);
-            }
-        }
-
-        return remaining;
-    }
-
-    ItemStack Inventory::RemoveItem(int slot, int count) {
-        if (!IsValidSlot(slot) || m_slots[slot].IsEmpty()) {
-            return ItemStack();
-        }
-
-        ItemStack removed = m_slots[slot].item;
-        int toRemove = std::min(count, removed.count);
-
-        removed.count = toRemove;
-        m_slots[slot].item.count -= toRemove;
-
-        if (m_slots[slot].item.count <= 0) {
-            m_slots[slot].item = ItemStack();
-        }
-
-        NotifySlotChange(slot, removed, m_slots[slot].item);
-        return removed;
-    }
-
-    bool Inventory::HasSpaceFor(const ItemStack& item) const {
-        if (item.IsEmpty()) {
-            return true;
-        }
-
-        int remaining = item.count;
-
-        // Check existing stacks
-        for (const auto& slot : m_slots) {
-            if (!slot.locked && !slot.IsEmpty() &&
-                slot.item.item == item.item && slot.item.nbt == item.nbt) {
-                int space = slot.maxStackSize - slot.item.count;
-                remaining -= space;
-                if (remaining <= 0) return true;
-            }
-        }
-
-        // Check empty slots
-        for (const auto& slot : m_slots) {
-            if (!slot.locked && slot.IsEmpty()) {
-                remaining -= slot.maxStackSize;
-                if (remaining <= 0) return true;
+        // Then, add to empty slots
+        for (int i = 0; i < m_size; ++i) {
+            auto& slot = m_slots[i];
+            if (slot.IsEmpty()) {
+                slot.itemStack = itemStack;
+                NotifyChange(i, ItemStack(), itemStack);
+                return true;
             }
         }
 
         return false;
     }
 
-    std::vector<int> Inventory::FindItem(BlockType itemType) const {
-        std::vector<int> result;
-        for (int i = 0; i < GetSize(); ++i) {
-            if (!m_slots[i].IsEmpty() && m_slots[i].item.item == itemType) {
-                result.push_back(i);
+    bool Inventory::RemoveItem(int itemID, int count) {
+        int remaining = count;
+
+        for (int i = 0; i < m_size && remaining > 0; ++i) {
+            auto& slot = m_slots[i];
+            if (slot.itemStack.itemID == itemID && !slot.IsEmpty()) {
+                int toRemove = std::min(remaining, slot.itemStack.count);
+                auto oldStack = slot.itemStack;
+
+                slot.itemStack.count -= toRemove;
+                if (slot.itemStack.IsEmpty()) {
+                    slot.Clear();
+                }
+
+                NotifyChange(i, oldStack, slot.itemStack);
+                remaining -= toRemove;
             }
         }
-        return result;
+
+        return remaining == 0;
     }
 
-    int Inventory::CountItem(BlockType itemType) const {
-        int count = 0;
+    int Inventory::GetItemCount(int itemID) const {
+        int total = 0;
         for (const auto& slot : m_slots) {
-            if (!slot.IsEmpty() && slot.item.item == itemType) {
-                count += slot.item.count;
+            if (slot.itemStack.itemID == itemID) {
+                total += slot.itemStack.count;
             }
         }
-        return count;
+        return total;
     }
 
-    void Inventory::ClearSlot(int slot) {
-        if (IsValidSlot(slot)) {
-            ItemStack oldItem = m_slots[slot].item;
-            m_slots[slot].item = ItemStack();
-            NotifySlotChange(slot, oldItem, ItemStack());
-        }
+    bool Inventory::ClearSlot(int slot) {
+        if (!IsValidSlot(slot)) return false;
+
+        auto oldStack = m_slots[slot].itemStack;
+        m_slots[slot].Clear();
+        NotifyChange(slot, oldStack, m_slots[slot].itemStack);
+
+        return true;
     }
 
-    void Inventory::Clear() {
-        for (int i = 0; i < GetSize(); ++i) {
+    void Inventory::ClearAll() {
+        for (int i = 0; i < m_size; ++i) {
             ClearSlot(i);
         }
     }
 
-    bool Inventory::IsEmpty() const {
-        for (const auto& slot : m_slots) {
-            if (!slot.IsEmpty()) {
-                return false;
+    int Inventory::FindEmptySlot() const {
+        for (int i = 0; i < m_size; ++i) {
+            if (m_slots[i].IsEmpty()) {
+                return i;
             }
         }
-        return true;
+        return -1;
     }
 
-    const InventorySlot& Inventory::GetSlot(int slot) const {
-        if (!IsValidSlot(slot)) {
-            static InventorySlot emptySlot;
-            return emptySlot;
-        }
-        return m_slots[slot];
-    }
-
-    bool Inventory::SwapSlots(int slot1, int slot2) {
-        if (!IsValidSlot(slot1) || !IsValidSlot(slot2)) {
-            return false;
-        }
-
-        if (m_slots[slot1].locked || m_slots[slot2].locked) {
-            return false;
-        }
-
-        ItemStack item1 = m_slots[slot1].item;
-        ItemStack item2 = m_slots[slot2].item;
-
-        m_slots[slot1].item = item2;
-        m_slots[slot2].item = item1;
-
-        NotifySlotChange(slot1, item1, item2);
-        NotifySlotChange(slot2, item2, item1);
-
-        return true;
-    }
-
-    int Inventory::MoveItem(int fromSlot, int toSlot, int count) {
-        if (!IsValidSlot(fromSlot) || !IsValidSlot(toSlot)) {
-            return 0;
-        }
-
-        if (m_slots[fromSlot].IsEmpty() || m_slots[toSlot].locked) {
-            return 0;
-        }
-
-        ItemStack fromItem = m_slots[fromSlot].item;
-        int toMove = (count == -1) ? fromItem.count : std::min(count, fromItem.count);
-
-        if (m_slots[toSlot].IsEmpty()) {
-            // Moving to empty slot
-            int canMove = std::min(toMove, m_slots[toSlot].maxStackSize);
-            m_slots[toSlot].item = ItemStack(fromItem.item, canMove, fromItem.nbt);
-            m_slots[fromSlot].item.count -= canMove;
-
-            if (m_slots[fromSlot].item.count <= 0) {
-                m_slots[fromSlot].item = ItemStack();
+    void Inventory::NotifyChange(int slot, const ItemStack& oldStack, const ItemStack& newStack) {
+        for (const auto& callback : m_changeListeners) {
+            if (callback) {
+                callback(slot, oldStack, newStack);
             }
-
-            NotifySlotChange(fromSlot, fromItem, m_slots[fromSlot].item);
-            NotifySlotChange(toSlot, ItemStack(), m_slots[toSlot].item);
-
-            return canMove;
-        } else if (m_slots[toSlot].item.item == fromItem.item &&
-                   m_slots[toSlot].item.nbt == fromItem.nbt) {
-            // Stacking items
-            int space = m_slots[toSlot].maxStackSize - m_slots[toSlot].item.count;
-            int canMove = std::min(toMove, space);
-
-            m_slots[toSlot].item.count += canMove;
-            m_slots[fromSlot].item.count -= canMove;
-
-            if (m_slots[fromSlot].item.count <= 0) {
-                m_slots[fromSlot].item = ItemStack();
-            }
-
-            NotifySlotChange(fromSlot, fromItem, m_slots[fromSlot].item);
-            NotifySlotChange(toSlot, ItemStack(fromItem.item, m_slots[toSlot].item.count - canMove, fromItem.nbt), m_slots[toSlot].item);
-
-            return canMove;
-        }
-
-        return 0;
-    }
-
-    void Inventory::AddChangeCallback(std::function<void(int slot, const ItemStack& oldItem, const ItemStack& newItem)> callback) {
-        m_callbacks.push_back(callback);
-    }
-
-    void Inventory::ClearChangeCallbacks() {
-        m_callbacks.clear();
-    }
-
-    void Inventory::NotifySlotChange(int slot, const ItemStack& oldItem, const ItemStack& newItem) {
-        for (const auto& callback : m_callbacks) {
-            callback(slot, oldItem, newItem);
         }
     }
 
-    // PlayerInventory Implementation
+    std::string Inventory::ToString() const {
+        std::stringstream ss;
+        ss << "Inventory[Size=" << m_size << ", Items=" << GetItemCount(-1) << "]";
+        return ss.str();
+    }
+
+    // PlayerInventory implementation
     PlayerInventory::PlayerInventory()
-        : Inventory(InventoryType::PLAYER, TOTAL_SLOTS)
-        , m_selectedHotbarSlot(0)
-    {
-        // Initialize slot names and properties
-        for (int i = 0; i < HOTBAR_SLOTS; ++i) {
-            m_slots[i].slotName = "Hotbar " + std::to_string(i + 1);
-        }
-
-        for (int row = 0; row < MAIN_INVENTORY_ROWS; ++row) {
-            for (int col = 0; col < MAIN_INVENTORY_COLS; ++col) {
-                int slot = GetMainInventorySlotIndex(row, col);
-                m_slots[slot].slotName = "Inventory " + std::to_string(row + 1) + "," + std::to_string(col + 1);
-            }
-        }
-
-        // Armor slots
-        m_slots[GetArmorSlotIndex(ArmorSlot::HELMET)].slotName = "Helmet";
-        m_slots[GetArmorSlotIndex(ArmorSlot::CHESTPLATE)].slotName = "Chestplate";
-        m_slots[GetArmorSlotIndex(ArmorSlot::LEGGINGS)].slotName = "Leggings";
-        m_slots[GetArmorSlotIndex(ArmorSlot::BOOTS)].slotName = "Boots";
-
-        // Offhand slot
-        m_slots[GetOffhandSlotIndex()].slotName = "Offhand";
-
-        // Crafting slots
-        for (int i = 0; i < CRAFTING_SLOTS; ++i) {
-            int slot = GetCraftingSlotIndex(i);
-            m_slots[slot].slotName = "Crafting " + std::to_string(i + 1);
-        }
-
-        // Create crafting table
-        m_craftingTable = std::make_shared<PlayerCraftingTable>();
-
-        // Connect crafting table to inventory
-        auto updateCrafting = [this](int slot, const ItemStack& oldItem, const ItemStack& newItem) {
-            if (slot >= GetCraftingSlotIndex(0) && slot <= GetCraftingSlotIndex(CRAFTING_SLOTS - 1)) {
-                int craftingSlot = slot - GetCraftingSlotIndex(0);
-                int row = craftingSlot / 2;
-                int col = craftingSlot % 2;
-                m_craftingTable->SetInputItem(col, row, newItem);
-            }
-        };
-
-        AddChangeCallback(updateCrafting);
+        : Inventory(InventoryType::PLAYER, TOTAL_SIZE), m_selectedHotbarSlot(0) {
     }
 
-    const ItemStack& PlayerInventory::GetHotbarItem(int slot) const {
-        if (slot < 0 || slot >= HOTBAR_SLOTS) {
-            static ItemStack empty;
-            return empty;
-        }
-        return GetItem(GetHotbarSlotIndex(slot));
+    bool PlayerInventory::SetHotbarSlot(int hotbarSlot, const ItemStack& itemStack) {
+        if (hotbarSlot < 0 || hotbarSlot >= HOTBAR_SIZE) return false;
+        return SetItem(hotbarSlot, itemStack);
     }
 
-    bool PlayerInventory::SetHotbarItem(int slot, const ItemStack& item) {
-        if (slot < 0 || slot >= HOTBAR_SLOTS) {
+    ItemStack PlayerInventory::GetHotbarSlot(int hotbarSlot) const {
+        if (hotbarSlot < 0 || hotbarSlot >= HOTBAR_SIZE) return ItemStack();
+        return GetItem(hotbarSlot);
+    }
+
+    bool PlayerInventory::SelectHotbarSlot(int slot) {
+        if (slot >= 0 && slot < HOTBAR_SIZE) {
+            m_selectedHotbarSlot = slot;
+            return true;
+        }
+        return false;
+    }
+
+    ItemStack PlayerInventory::GetSelectedItem() const {
+        return GetHotbarSlot(m_selectedHotbarSlot);
+    }
+
+    // InventoryManager implementation
+    InventoryManager& InventoryManager::GetInstance() {
+        static InventoryManager instance;
+        return instance;
+    }
+
+    std::shared_ptr<Inventory> InventoryManager::CreateInventory(InventoryType type, int size) {
+        return std::make_shared<Inventory>(type, size);
+    }
+
+    std::shared_ptr<PlayerInventory> InventoryManager::CreatePlayerInventory() {
+        return std::make_shared<PlayerInventory>();
+    }
+
+    bool InventoryManager::RegisterItem(int itemID, const std::string& name, int maxStackSize) {
+        if (m_itemRegistry.find(itemID) != m_itemRegistry.end()) {
             return false;
         }
-        return SetItem(GetHotbarSlotIndex(slot), item);
-    }
-
-    const ItemStack& PlayerInventory::GetMainInventoryItem(int row, int col) const {
-        if (row < 0 || row >= MAIN_INVENTORY_ROWS || col < 0 || col >= MAIN_INVENTORY_COLS) {
-            static ItemStack empty;
-            return empty;
-        }
-        return GetItem(GetMainInventorySlotIndex(row, col));
-    }
-
-    bool PlayerInventory::SetMainInventoryItem(int row, int col, const ItemStack& item) {
-        if (row < 0 || row >= MAIN_INVENTORY_ROWS || col < 0 || col >= MAIN_INVENTORY_COLS) {
-            return false;
-        }
-        return SetItem(GetMainInventorySlotIndex(row, col), item);
-    }
-
-    const ItemStack& PlayerInventory::GetArmorItem(ArmorSlot slot) const {
-        return GetItem(GetArmorSlotIndex(slot));
-    }
-
-    bool PlayerInventory::SetArmorItem(ArmorSlot slot, const ItemStack& item) {
-        return SetItem(GetArmorSlotIndex(slot), item);
-    }
-
-    const ItemStack& PlayerInventory::GetOffhandItem() const {
-        return GetItem(GetOffhandSlotIndex());
-    }
-
-    bool PlayerInventory::SetOffhandItem(const ItemStack& item) {
-        return SetItem(GetOffhandSlotIndex(), item);
-    }
-
-    bool PlayerInventory::SetSelectedHotbarSlot(int slot) {
-        if (slot < 0 || slot >= HOTBAR_SLOTS) {
-            return false;
-        }
-        m_selectedHotbarSlot = slot;
+        m_itemRegistry[itemID] = std::make_pair(name, maxStackSize);
         return true;
     }
 
-    const ItemStack& PlayerInventory::GetSelectedItem() const {
-        return GetHotbarItem(m_selectedHotbarSlot);
+    std::string InventoryManager::GetItemName(int itemID) const {
+        auto it = m_itemRegistry.find(itemID);
+        return (it != m_itemRegistry.end()) ? it->second.first : "Unknown Item";
     }
 
-    int PlayerInventory::PickUpItem(const ItemStack& item) {
-        return AddItem(item);
+    int InventoryManager::GetItemMaxStackSize(int itemID) const {
+        auto it = m_itemRegistry.find(itemID);
+        return (it != m_itemRegistry.end()) ? it->second.second : 64;
     }
 
-    ItemStack PlayerInventory::DropItem(int slot, int count) {
-        return RemoveItem(slot, count);
+    bool InventoryManager::IsValidItem(int itemID) const {
+        return m_itemRegistry.find(itemID) != m_itemRegistry.end();
     }
 
-    // ContainerInventory Implementation
-    ContainerInventory::ContainerInventory(int size, const std::string& name)
-        : Inventory(InventoryType::CONTAINER, size)
-        , m_name(name)
-    {
-        // Set slot names
-        for (int i = 0; i < size; ++i) {
-            m_slots[i].slotName = name + " Slot " + std::to_string(i + 1);
-        }
-    }
-
-} // namespace VoxelCraft
+}

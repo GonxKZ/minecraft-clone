@@ -1,105 +1,86 @@
-/**
- * @file Inventory.hpp
- * @brief VoxelCraft Inventory System - Player and Container Inventories
- * @version 1.0.0
- * @author VoxelCraft Team
- *
- * Complete inventory system inspired by Minecraft with slots, stacking, and crafting integration
- */
-
-#ifndef VOXELCRAFT_INVENTORY_INVENTORY_HPP
-#define VOXELCRAFT_INVENTORY_INVENTORY_HPP
+#pragma once
 
 #include <vector>
-#include <memory>
 #include <unordered_map>
+#include <memory>
+#include <string>
 #include <functional>
-#include "../crafting/CraftingRecipe.hpp"
-#include "../blocks/Block.hpp"
+#include <mutex>
+#include <atomic>
 
 namespace VoxelCraft {
 
-    // Forward declarations
-    class CraftingTable;
-    struct ItemStack;
+    class Item;
+    class ItemStack;
+    class PlayerEntity;
 
     /**
      * @enum InventoryType
      * @brief Types of inventories in the game
      */
     enum class InventoryType {
-        PLAYER,           // Player's main inventory
-        PLAYER_HOTBAR,    // Player's hotbar
-        CRAFTING,         // Crafting result slots
-        ARMOR,            // Armor slots
-        OFFHAND,          // Offhand slot
-        CONTAINER,        // Generic container (chest, etc.)
-        FURNACE,          // Furnace inventory
-        ENCHANTING,       // Enchanting table
-        BREWING,          // Brewing stand
-        ANVIL,            // Anvil
-        BEACON,           // Beacon
-        HOPPER,           // Hopper
-        DISPENSER,        // Dispenser/Dropper
-        SHULKER_BOX,      // Shulker box
-        ENDER_CHEST,      // Ender chest
-        HORSE,            // Horse inventory
-        VILLAGER,         // Villager trading
-        MINECART,         // Minecart with chest
-        CUSTOM            // Custom inventory type
+        PLAYER = 0,           ///< Player main inventory
+        HOTBAR,               ///< Player hotbar (subset of player inventory)
+        CRAFTING,             ///< Crafting table inventory
+        FURNACE,              ///< Furnace inventory
+        CHEST,                ///< Chest inventory
+        ENDER_CHEST,          ///< Ender chest inventory
+        SHULKER_BOX,          ///< Shulker box inventory
+        BARREL,               ///< Barrel inventory
+        HOPPER,               ///< Hopper inventory
+        DISPENSER,            ///< Dispenser inventory
+        DROPPER,              ///< Dropper inventory
+        BREWING_STAND,        ///< Brewing stand inventory
+        ENCHANTMENT_TABLE,    ///< Enchantment table inventory
+        ANVIL,                ///< Anvil inventory
+        BEACON,               ///< Beacon inventory
+        HOPPER_MINECART,      ///< Hopper minecart inventory
+        CHEST_MINECART,       ///< Chest minecart inventory
+        VILLAGER_TRADING,     ///< Villager trading inventory
+        HORSE_INVENTORY       ///< Horse inventory
     };
 
     /**
-     * @enum ArmorSlot
-     * @brief Armor equipment slots
+     * @struct ItemStack
+     * @brief Represents a stack of items in the inventory
      */
-    enum class ArmorSlot {
-        HELMET = 0,    // Head slot
-        CHESTPLATE,    // Chest slot
-        LEGGINGS,      // Legs slot
-        BOOTS,         // Feet slot
-        COUNT          // Number of armor slots
+    struct ItemStack {
+        int itemID;              ///< Item/block ID
+        int count;               ///< Number of items in stack
+        int maxStackSize;        ///< Maximum stack size for this item
+        int metadata;            ///< Item metadata (durability, enchantments, etc.)
+        std::string itemName;    ///< Item display name
+
+        ItemStack(int id = 0, int cnt = 0, int maxStack = 64,
+                 int meta = 0, const std::string& name = "");
+
+        // Stack operations
+        bool CanStackWith(const ItemStack& other) const;
+        int GetRemainingSpace() const;
+        bool IsEmpty() const { return count <= 0; }
+        bool IsFull() const { return count >= maxStackSize; }
+        void Clear() { count = 0; }
+        std::string ToString() const;
     };
 
     /**
      * @struct InventorySlot
-     * @brief A single slot in an inventory
+     * @brief Represents a single inventory slot
      */
     struct InventorySlot {
-        ItemStack item;           ///< Item in the slot
-        int maxStackSize;        ///< Maximum stack size for this slot
-        bool locked;             ///< Whether the slot is locked
-        std::string slotName;    ///< Name/description of the slot
+        int slotIndex;           ///< Slot index in inventory
+        ItemStack itemStack;     ///< Item stack in this slot
+        bool locked;             ///< Whether slot is locked
+        std::string customName;  ///< Custom slot name
 
-        InventorySlot()
-            : maxStackSize(64)
-            , locked(false)
-            , slotName("")
-        {}
-
-        InventorySlot(int maxStack, const std::string& name = "")
-            : maxStackSize(maxStack)
-            , locked(false)
-            , slotName(name)
-        {}
-
-        bool IsEmpty() const {
-            return item.IsEmpty();
-        }
-
-        bool CanHoldItem(const ItemStack& newItem) const {
-            if (locked) return false;
-            if (IsEmpty()) return newItem.count <= maxStackSize;
-            if (item.item == newItem.item && item.nbt == newItem.nbt) {
-                return (item.count + newItem.count) <= maxStackSize;
-            }
-            return false;
-        }
+        InventorySlot(int index = 0);
+        bool IsEmpty() const { return itemStack.IsEmpty(); }
+        void Clear();
     };
 
     /**
      * @class Inventory
-     * @brief Base class for all inventory types
+     * @brief Base inventory system for the game
      */
     class Inventory {
     public:
@@ -108,355 +89,237 @@ namespace VoxelCraft {
          * @param type Inventory type
          * @param size Number of slots
          */
-        Inventory(InventoryType type, int size);
+        Inventory(InventoryType type = InventoryType::PLAYER, int size = 36);
 
         /**
-         * @brief Virtual destructor
+         * @brief Destructor
          */
-        virtual ~Inventory() = default;
+        virtual ~Inventory();
 
-        /**
-         * @brief Get inventory type
-         * @return Inventory type
-         */
+        // Getters
         InventoryType GetType() const { return m_type; }
+        int GetSize() const { return m_size; }
+        int GetMaxStackSize() const { return m_maxStackSize; }
+        const std::string& GetName() const { return m_name; }
 
-        /**
-         * @brief Get inventory size
-         * @return Number of slots
-         */
-        int GetSize() const { return m_slots.size(); }
+        // Setters
+        void SetName(const std::string& name) { m_name = name; }
+        void SetMaxStackSize(int maxStack) { m_maxStackSize = maxStack; }
 
-        /**
-         * @brief Get item from slot
-         * @param slot Slot index
-         * @return Item in slot
-         */
-        const ItemStack& GetItem(int slot) const;
+        // Slot operations
+        bool IsValidSlot(int slot) const;
+        const InventorySlot* GetSlot(int slot) const;
+        InventorySlot* GetSlot(int slot);
 
-        /**
-         * @brief Set item in slot
-         * @param slot Slot index
-         * @param item Item to set
-         * @return true if successful
-         */
-        bool SetItem(int slot, const ItemStack& item);
+        // Item operations
+        bool SetItem(int slot, const ItemStack& itemStack);
+        bool SetItem(int slot, int itemID, int count = 1);
+        ItemStack GetItem(int slot) const;
+        bool RemoveItem(int slot, int count = 1);
+        bool ClearSlot(int slot);
+        void ClearAll();
 
-        /**
-         * @brief Add item to inventory
-         * @param item Item to add
-         * @return Number of items that couldn't be added
-         */
-        int AddItem(const ItemStack& item);
+        // Stack operations
+        bool AddItem(const ItemStack& itemStack);
+        bool AddItem(int itemID, int count = 1);
+        bool RemoveItem(int itemID, int count = 1);
+        int GetItemCount(int itemID) const;
+        bool HasItem(int itemID, int count = 1) const;
 
-        /**
-         * @brief Remove item from slot
-         * @param slot Slot index
-         * @param count Number of items to remove
-         * @return Items removed
-         */
-        ItemStack RemoveItem(int slot, int count = 1);
-
-        /**
-         * @brief Check if inventory has space for item
-         * @param item Item to check
-         * @return true if can add item
-         */
-        bool HasSpaceFor(const ItemStack& item) const;
-
-        /**
-         * @brief Find item in inventory
-         * @param itemType Item to find
-         * @return Vector of slot indices containing the item
-         */
-        std::vector<int> FindItem(BlockType itemType) const;
-
-        /**
-         * @brief Count total items of type
-         * @param itemType Item to count
-         * @return Total count
-         */
-        int CountItem(BlockType itemType) const;
-
-        /**
-         * @brief Clear slot
-         * @param slot Slot index
-         */
-        void ClearSlot(int slot);
-
-        /**
-         * @brief Clear entire inventory
-         */
-        void Clear();
-
-        /**
-         * @brief Check if inventory is empty
-         * @return true if empty
-         */
-        bool IsEmpty() const;
-
-        /**
-         * @brief Get slot information
-         * @param slot Slot index
-         * @return Slot information
-         */
-        const InventorySlot& GetSlot(int slot) const;
-
-        /**
-         * @brief Check if slot is valid
-         * @param slot Slot index
-         * @return true if valid
-         */
-        bool IsValidSlot(int slot) const {
-            return slot >= 0 && slot < GetSize();
-        }
-
-        /**
-         * @brief Swap items between slots
-         * @param slot1 First slot
-         * @param slot2 Second slot
-         * @return true if successful
-         */
+        // Inventory operations
         bool SwapSlots(int slot1, int slot2);
+        bool MoveItem(int fromSlot, int toSlot, int count = -1);
+        bool SplitStack(int slot);
+        bool MergeStacks(int fromSlot, int toSlot);
 
-        /**
-         * @brief Move item from one slot to another
-         * @param fromSlot Source slot
-         * @param toSlot Destination slot
-         * @param count Number of items to move
-         * @return Items actually moved
-         */
-        int MoveItem(int fromSlot, int toSlot, int count = -1);
+        // Search operations
+        int FindEmptySlot() const;
+        int FindItem(int itemID) const;
+        std::vector<int> FindAllItems(int itemID) const;
+        int GetFirstEmptySlot() const;
+        int GetTotalItemCount(int itemID) const;
 
-        /**
-         * @brief Add inventory change callback
-         * @param callback Function called when inventory changes
-         */
-        void AddChangeCallback(std::function<void(int slot, const ItemStack& oldItem, const ItemStack& newItem)> callback);
+        // Advanced operations
+        bool CanAddItem(const ItemStack& itemStack) const;
+        bool CanAddItem(int itemID, int count = 1) const;
+        int GetRemainingSpace(int itemID) const;
 
-        /**
-         * @brief Remove all change callbacks
-         */
-        void ClearChangeCallbacks();
+        // Event callbacks
+        using InventoryChangeCallback = std::function<void(int slot, const ItemStack& oldStack, const ItemStack& newStack)>;
+        void AddChangeListener(const InventoryChangeCallback& callback);
+        void RemoveChangeListener(const InventoryChangeCallback& callback);
 
-        /**
-         * @brief Get all slots
-         * @return Vector of all slots
-         */
-        const std::vector<InventorySlot>& GetAllSlots() const { return m_slots; }
+        // Serialization
+        std::string Serialize() const;
+        bool Deserialize(const std::string& data);
+
+        // Debug
+        void PrintInventory() const;
+        std::string ToString() const;
 
     protected:
-        InventoryType m_type;                                    ///< Inventory type
-        std::vector<InventorySlot> m_slots;                      ///< Inventory slots
-        std::vector<std::function<void(int slot, const ItemStack& oldItem, const ItemStack& newItem)>> m_callbacks;  ///< Change callbacks
+        InventoryType m_type;
+        int m_size;
+        int m_maxStackSize;
+        std::string m_name;
+        std::vector<InventorySlot> m_slots;
+        mutable std::shared_mutex m_inventoryMutex;
+        std::vector<InventoryChangeCallback> m_changeListeners;
 
-        /**
-         * @brief Notify about slot change
-         * @param slot Changed slot
-         * @param oldItem Previous item
-         * @param newItem New item
-         */
-        void NotifySlotChange(int slot, const ItemStack& oldItem, const ItemStack& newItem);
+        // Protected methods
+        void NotifyChange(int slot, const ItemStack& oldStack, const ItemStack& newStack);
+        bool IsValidItem(int itemID) const;
+        int GetMaxStackSizeForItem(int itemID) const;
+        virtual bool CanPlaceItem(int slot, const ItemStack& itemStack) const;
+        virtual void OnItemChanged(int slot, const ItemStack& oldStack, const ItemStack& newStack);
     };
 
     /**
      * @class PlayerInventory
-     * @brief Player's complete inventory system (hotbar + main inventory + armor + offhand)
+     * @brief Specialized inventory for players with hotbar and armor slots
      */
     class PlayerInventory : public Inventory {
     public:
+        static const int HOTBAR_SIZE = 9;
+        static const int ARMOR_SIZE = 4;
+        static const int OFFHAND_SIZE = 1;
+        static const int CRAFTING_SIZE = 4;
+        static const int MAIN_INVENTORY_SIZE = 27;
+        static const int TOTAL_SIZE = HOTBAR_SIZE + ARMOR_SIZE + OFFHAND_SIZE + CRAFTING_SIZE + MAIN_INVENTORY_SIZE;
+
+        enum class PlayerInventorySlot {
+            // Hotbar slots (0-8)
+            HOTBAR_START = 0,
+            HOTBAR_END = HOTBAR_START + HOTBAR_SIZE - 1,
+
+            // Armor slots (9-12)
+            HELMET = HOTBAR_END + 1,
+            CHESTPLATE = HELMET + 1,
+            LEGGINGS = CHESTPLATE + 1,
+            BOOTS = LEGGINGS + 1,
+            ARMOR_END = BOOTS,
+
+            // Offhand slot (13)
+            OFFHAND = ARMOR_END + 1,
+
+            // Crafting slots (14-17)
+            CRAFTING_START = OFFHAND + 1,
+            CRAFTING_END = CRAFTING_START + CRAFTING_SIZE - 1,
+
+            // Main inventory (18-44)
+            MAIN_INVENTORY_START = CRAFTING_END + 1,
+            MAIN_INVENTORY_END = MAIN_INVENTORY_START + MAIN_INVENTORY_SIZE - 1
+        };
+
         /**
          * @brief Constructor
          */
         PlayerInventory();
 
         /**
-         * @brief Get hotbar item
-         * @param slot Hotbar slot (0-8)
-         * @return Item in hotbar slot
+         * @brief Destructor
          */
-        const ItemStack& GetHotbarItem(int slot) const;
+        ~PlayerInventory() override;
 
-        /**
-         * @brief Set hotbar item
-         * @param slot Hotbar slot (0-8)
-         * @param item Item to set
-         * @return true if successful
-         */
-        bool SetHotbarItem(int slot, const ItemStack& item);
-
-        /**
-         * @brief Get main inventory item
-         * @param row Row (0-3)
-         * @param col Column (0-8)
-         * @return Item in main inventory
-         */
-        const ItemStack& GetMainInventoryItem(int row, int col) const;
-
-        /**
-         * @brief Set main inventory item
-         * @param row Row (0-3)
-         * @param col Column (0-8)
-         * @param item Item to set
-         * @return true if successful
-         */
-        bool SetMainInventoryItem(int row, int col, const ItemStack& item);
-
-        /**
-         * @brief Get armor item
-         * @param slot Armor slot
-         * @return Item in armor slot
-         */
-        const ItemStack& GetArmorItem(ArmorSlot slot) const;
-
-        /**
-         * @brief Set armor item
-         * @param slot Armor slot
-         * @param item Item to set
-         * @return true if successful
-         */
-        bool SetArmorItem(ArmorSlot slot, const ItemStack& item);
-
-        /**
-         * @brief Get offhand item
-         * @return Item in offhand slot
-         */
-        const ItemStack& GetOffhandItem() const;
-
-        /**
-         * @brief Set offhand item
-         * @param item Item to set
-         * @return true if successful
-         */
-        bool SetOffhandItem(const ItemStack& item);
-
-        /**
-         * @brief Get selected hotbar slot
-         * @return Selected slot (0-8)
-         */
+        // Hotbar operations
+        bool SetHotbarSlot(int hotbarSlot, const ItemStack& itemStack);
+        ItemStack GetHotbarSlot(int hotbarSlot) const;
+        bool SelectHotbarSlot(int slot);
         int GetSelectedHotbarSlot() const { return m_selectedHotbarSlot; }
+        ItemStack GetSelectedItem() const;
 
-        /**
-         * @brief Set selected hotbar slot
-         * @param slot Selected slot (0-8)
-         * @return true if successful
-         */
-        bool SetSelectedHotbarSlot(int slot);
+        // Armor operations
+        bool SetArmorSlot(int armorSlot, const ItemStack& itemStack);
+        ItemStack GetArmorSlot(int armorSlot) const;
+        bool IsWearingArmor(int armorSlot) const;
 
-        /**
-         * @brief Get currently selected item
-         * @return Selected item
-         */
-        const ItemStack& GetSelectedItem() const;
+        // Offhand operations
+        bool SetOffhandItem(const ItemStack& itemStack);
+        ItemStack GetOffhandItem() const;
 
-        /**
-         * @brief Get 2x2 crafting table for player inventory
-         * @return Player crafting table
-         */
-        std::shared_ptr<CraftingTable> GetCraftingTable() const { return m_craftingTable; }
+        // Crafting operations
+        bool SetCraftingSlot(int craftingSlot, const ItemStack& itemStack);
+        ItemStack GetCraftingSlot(int craftingSlot) const;
+        void ClearCraftingGrid();
+        bool IsValidArmor(int itemID, int armorSlot) const;
 
-        /**
-         * @brief Pick up item from world
-         * @param item Item to pick up
-         * @return Number of items that couldn't be picked up
-         */
-        int PickUpItem(const ItemStack& item);
+        // Player-specific operations
+        void UpdatePlayerStats();
+        int GetTotalProtection() const;
+        float GetMovementSpeedModifier() const;
+        bool HasItemInHotbar(int itemID) const;
 
-        /**
-         * @brief Drop item from slot
-         * @param slot Slot to drop from
-         * @param count Number of items to drop
-         * @return Items dropped
-         */
-        ItemStack DropItem(int slot, int count = 1);
+        // Armor durability
+        bool DamageArmor(int damage);
+        void RepairArmor(int repairAmount);
 
-        // Constants for slot layout
-        static constexpr int HOTBAR_SLOTS = 9;
-        static constexpr int MAIN_INVENTORY_ROWS = 3;
-        static constexpr int MAIN_INVENTORY_COLS = 9;
-        static constexpr int ARMOR_SLOTS = 4;
-        static constexpr int OFFHAND_SLOTS = 1;
-        static constexpr int CRAFTING_SLOTS = 4; // 2x2 crafting grid
-        static constexpr int TOTAL_SLOTS = HOTBAR_SLOTS + MAIN_INVENTORY_ROWS * MAIN_INVENTORY_COLS +
-                                          ARMOR_SLOTS + OFFHAND_SLOTS + CRAFTING_SLOTS;
+        // Quick access methods
+        int GetHotbarIndex(int hotbarSlot) const;
+        int GetArmorIndex(int armorSlot) const;
+        int GetCraftingIndex(int craftingSlot) const;
 
-    private:
-        int m_selectedHotbarSlot;                    ///< Currently selected hotbar slot (0-8)
-        std::shared_ptr<CraftingTable> m_craftingTable;  ///< Player's crafting table
+        // Serialization for player data
+        std::string SerializePlayerInventory() const;
+        bool DeserializePlayerInventory(const std::string& data);
 
-        /**
-         * @brief Get hotbar slot index from hotbar slot number
-         * @param hotbarSlot Hotbar slot (0-8)
-         * @return Internal slot index
-         */
-        int GetHotbarSlotIndex(int hotbarSlot) const { return hotbarSlot; }
+    protected:
+        int m_selectedHotbarSlot;
 
-        /**
-         * @brief Get main inventory slot index
-         * @param row Row (0-3)
-         * @param col Column (0-8)
-         * @return Internal slot index
-         */
-        int GetMainInventorySlotIndex(int row, int col) const {
-            return HOTBAR_SLOTS + row * MAIN_INVENTORY_COLS + col;
-        }
-
-        /**
-         * @brief Get armor slot index
-         * @param slot Armor slot
-         * @return Internal slot index
-         */
-        int GetArmorSlotIndex(ArmorSlot slot) const {
-            return HOTBAR_SLOTS + MAIN_INVENTORY_ROWS * MAIN_INVENTORY_COLS + static_cast<int>(slot);
-        }
-
-        /**
-         * @brief Get offhand slot index
-         * @return Internal slot index
-         */
-        int GetOffhandSlotIndex() const {
-            return HOTBAR_SLOTS + MAIN_INVENTORY_ROWS * MAIN_INVENTORY_COLS + ARMOR_SLOTS;
-        }
-
-        /**
-         * @brief Get crafting slot index
-         * @param index Crafting slot (0-3)
-         * @return Internal slot index
-         */
-        int GetCraftingSlotIndex(int index) const {
-            return HOTBAR_SLOTS + MAIN_INVENTORY_ROWS * MAIN_INVENTORY_COLS + ARMOR_SLOTS + OFFHAND_SLOTS + index;
-        }
+        bool CanPlaceItem(int slot, const ItemStack& itemStack) const override;
+        void OnItemChanged(int slot, const ItemStack& oldStack, const ItemStack& newStack) override;
     };
 
     /**
-     * @class ContainerInventory
-     * @brief Generic container inventory (chest, furnace, etc.)
+     * @class InventoryManager
+     * @brief Manager for all inventories in the game
      */
-    class ContainerInventory : public Inventory {
+    class InventoryManager {
     public:
-        /**
-         * @brief Constructor
-         * @param size Number of slots
-         * @param name Container name
-         */
-        ContainerInventory(int size, const std::string& name = "Container");
+        static InventoryManager& GetInstance();
 
-        /**
-         * @brief Get container name
-         * @return Container name
-         */
-        const std::string& GetName() const { return m_name; }
+        // Inventory creation and management
+        std::shared_ptr<Inventory> CreateInventory(InventoryType type, int size = 27);
+        std::shared_ptr<PlayerInventory> CreatePlayerInventory();
+        bool DestroyInventory(std::shared_ptr<Inventory> inventory);
 
-        /**
-         * @brief Set container name
-         * @param name New name
-         */
-        void SetName(const std::string& name) { m_name = name; }
+        // Player inventory management
+        std::shared_ptr<PlayerInventory> GetPlayerInventory(PlayerEntity* player);
+        bool SetPlayerInventory(PlayerEntity* player, std::shared_ptr<PlayerInventory> inventory);
+
+        // Inventory operations
+        bool TransferItem(std::shared_ptr<Inventory> from, int fromSlot,
+                         std::shared_ptr<Inventory> to, int toSlot, int count = -1);
+        bool TransferAllItems(std::shared_ptr<Inventory> from, std::shared_ptr<Inventory> to);
+
+        // Item management
+        bool RegisterItem(int itemID, const std::string& name, int maxStackSize = 64);
+        bool UnregisterItem(int itemID);
+        std::string GetItemName(int itemID) const;
+        int GetItemMaxStackSize(int itemID) const;
+        bool IsValidItem(int itemID) const;
+
+        // Statistics
+        size_t GetTotalInventoryCount() const;
+        size_t GetTotalItemCount() const;
+
+        // Cleanup
+        void CleanupEmptyInventories();
 
     private:
-        std::string m_name;  ///< Container name
+        InventoryManager() = default;
+        ~InventoryManager() = default;
+
+        // Prevent copying
+        InventoryManager(const InventoryManager&) = delete;
+        InventoryManager& operator=(const InventoryManager&) = delete;
+
+        // Data structures
+        std::unordered_map<PlayerEntity*, std::shared_ptr<PlayerInventory>> m_playerInventories;
+        std::vector<std::shared_ptr<Inventory>> m_inventories;
+        std::unordered_map<int, std::pair<std::string, int>> m_itemRegistry;
+
+        // Thread safety
+        mutable std::shared_mutex m_managerMutex;
     };
 
 } // namespace VoxelCraft
-
-#endif // VOXELCRAFT_INVENTORY_INVENTORY_HPP
