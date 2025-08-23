@@ -142,6 +142,7 @@ set(VOXELCRAFT_CORE_SOURCES
     src/entities/Entity.cpp
     src/entities/Component.cpp
     src/entities/EntityManager.cpp
+    src/entities/System.hpp
     src/entities/System.cpp
     src/entities/TransformComponent.cpp
     src/entities/RenderComponent.hpp

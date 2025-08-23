@@ -1,245 +1,327 @@
 #include "System.hpp"
-#include <algorithm>
-#include <chrono>
+#include "EntityManager.hpp"
+#include <atomic>
+#include <sstream>
 
 namespace VoxelCraft {
 
-	// Static member initialization
-	static SystemID s_nextSystemID = 1;
-	static std::unordered_map<std::string, SystemID> s_systemTypeMap;
-	static std::mutex s_systemTypeMutex;
+    // Variable estática para generar IDs únicos
+    std::atomic<System::SystemID> System::s_NextID{1};
 
-	System::System(const SystemProperties& properties)
-		: m_properties(properties)
-		, m_state(SystemState::CREATED)
-		, m_entityManager(nullptr)
-		, m_enabled(true)
-		, m_paused(false)
-		, m_destroyed(false)
-		, m_signature(0)
-		, m_statistics({0, 0, 0.0f, 0.0f, 0.0f, 0.0f, 0, 0})
-		, m_accumulatedTime(0.0f)
-	{
-		std::lock_guard<std::mutex> lock(s_systemTypeMutex);
-		m_id = s_nextSystemID++;
-	}
+    System::System()
+        : m_ID(GenerateID())
+        , m_Name("System")
+        , m_Manager(nullptr)
+        , m_State(SystemState::INITIALIZED)
+    {
+    }
 
-	bool System::Initialize()
-	{
-		if (m_state != SystemState::CREATED) {
-			VOXEL_LOG_WARNING("System {} already initialized", m_properties.name);
-			return false;
-		}
+    System::~System() {
+        OnDestroy();
+    }
 
-		VOXEL_LOG_INFO("Initializing system: {}", m_properties.name);
+    System::System(System&& other) noexcept
+        : m_ID(other.m_ID)
+        , m_Name(std::move(other.m_Name))
+        , m_Manager(other.m_Manager)
+        , m_State(other.m_State)
+    {
+        other.m_State = SystemState::DESTROYED;
+        other.m_Manager = nullptr;
+    }
 
-		m_state = SystemState::INITIALIZED;
-		m_lastUpdateTime = std::chrono::high_resolution_clock::now();
+    System& System::operator=(System&& other) noexcept {
+        if (this != &other) {
+            OnDestroy();
 
-		return true;
-	}
+            m_ID = other.m_ID;
+            m_Name = std::move(other.m_Name);
+            m_Manager = other.m_Manager;
+            m_State = other.m_State;
 
-	void System::Shutdown()
-	{
-		if (m_state == SystemState::DESTROYED) {
-			return;
-		}
+            other.m_State = SystemState::DESTROYED;
+            other.m_Manager = nullptr;
+        }
 
-		VOXEL_LOG_INFO("Shutting down system: {}", m_properties.name);
+        return *this;
+    }
 
-		// Clear tracked entities
-		std::lock_guard<std::mutex> lock(m_entityMutex);
-		m_trackedEntities.clear();
+    void System::SetPaused(bool paused) {
+        if (m_State == SystemState::DESTROYED) {
+            return;
+        }
 
-		m_state = SystemState::DESTROYED;
-	}
+        SystemState newState = paused ? SystemState::PAUSED : SystemState::RUNNING;
 
-	void System::Update(float deltaTime)
-	{
-		if (m_state != SystemState::ACTIVE || !m_enabled.load() || m_paused.load()) {
-			return;
-		}
+        if (m_State != newState) {
+            m_State = newState;
 
-		auto startTime = std::chrono::high_resolution_clock::now();
+            if (paused) {
+                OnPause();
+            } else {
+                OnResume();
+            }
+        }
+    }
 
-		// Handle update interval
-		if (m_properties.updateInterval > 0.0f) {
-			m_accumulatedTime += deltaTime;
-			if (m_accumulatedTime < m_properties.updateInterval) {
-				return;
-			}
-			deltaTime = m_accumulatedTime;
-			m_accumulatedTime = 0.0f;
-		}
+    void System::Destroy() {
+        if (m_State != SystemState::DESTROYED) {
+            m_State = SystemState::DESTROYED;
+            OnDestroy();
+        }
+    }
 
-		// Process entities
-		std::unique_lock<std::mutex> entityLock(m_entityMutex, std::try_to_lock);
-		if (!entityLock.owns_lock()) {
-			return; // Skip update if can't lock
-		}
+    std::string System::ToString() const {
+        std::stringstream ss;
+        ss << "System[ID=" << m_ID << ", Name='" << m_Name << "', Type=" << GetType().name();
 
-		uint32_t entitiesProcessed = 0;
-		for (EntityID entityID : m_trackedEntities) {
-			ProcessEntity(entityID, deltaTime);
-			entitiesProcessed++;
-		}
+        switch (m_State) {
+            case SystemState::INITIALIZED: ss << ", State=INITIALIZED"; break;
+            case SystemState::RUNNING: ss << ", State=RUNNING"; break;
+            case SystemState::PAUSED: ss << ", State=PAUSED"; break;
+            case SystemState::DESTROYED: ss << ", State=DESTROYED"; break;
+        }
 
-		auto endTime = std::chrono::high_resolution_clock::now();
-		float updateTime = std::chrono::duration_cast<std::chrono::microseconds>(
-			endTime - startTime).count() / 1000.0f;
+        ss << ", Manager=" << (m_Manager ? "set" : "null") << "]";
+        return ss.str();
+    }
 
-		UpdateStatistics(updateTime, entitiesProcessed);
-	}
+    System::SystemID System::GenerateID() {
+        return s_NextID.fetch_add(1, std::memory_order_relaxed);
+    }
 
-	void System::UpdateVariable(float deltaTime)
-	{
-		if (m_state != SystemState::ACTIVE || !m_enabled.load() || m_paused.load()) {
-			return;
-		}
+    // Implementación de TransformSystem
+    TransformSystem::TransformSystem() {
+        m_Name = "TransformSystem";
+    }
 
-		// Default implementation - can be overridden
-		Update(deltaTime);
-	}
+    void TransformSystem::Update(float deltaTime) {
+        // Update transform components
+        UpdateTransformMatrices();
+        HandleParenting();
+    }
 
-	void System::UpdateRender()
-	{
-		if (m_state != SystemState::ACTIVE || !m_enabled.load() || m_paused.load()) {
-			return;
-		}
+    void TransformSystem::FixedUpdate(float fixedDeltaTime) {
+        UpdateWorldMatrices();
+    }
 
-		// Default implementation - can be overridden
-	}
+    void TransformSystem::OnInit() {
+        VOXELCRAFT_LOG_INFO("TransformSystem initialized");
+    }
 
-	void System::Render()
-	{
-		if (m_state != SystemState::ACTIVE || !m_enabled.load() || m_paused.load()) {
-			return;
-		}
+    void TransformSystem::UpdateTransformMatrices() {
+        // Implementation for updating local transform matrices
+        // This would iterate through all entities with TransformComponent
+    }
 
-		// Default implementation - can be overridden
-	}
+    void TransformSystem::HandleParenting() {
+        // Implementation for handling parent-child relationships
+        // This manages hierarchical transformations
+    }
 
-	void System::OnEvent(const std::string& eventType, void* eventData)
-	{
-		// Default implementation - can be overridden
-		VOXEL_LOG_DEBUG("System {} received event: {}", m_properties.name, eventType);
-	}
+    void TransformSystem::UpdateWorldMatrices() {
+        // Implementation for updating world space matrices
+        // This combines local transforms with parent transforms
+    }
 
-	bool System::MatchesSignature(EntityID entityID, EntitySignature entitySignature) const
-	{
-		return (entitySignature & m_signature) == m_signature;
-	}
+    // Implementación de PhysicsSystem
+    PhysicsSystem::PhysicsSystem() {
+        m_Name = "PhysicsSystem";
+    }
 
-	void System::AddEntity(EntityID entityID)
-	{
-		std::lock_guard<std::mutex> lock(m_entityMutex);
+    void PhysicsSystem::Update(float deltaTime) {
+        // Handle physics updates
+        IntegrateVelocities();
+    }
 
-		if (m_trackedEntities.find(entityID) == m_trackedEntities.end()) {
-			m_trackedEntities.insert(entityID);
-			VOXEL_LOG_DEBUG("Entity {} added to system {}", entityID, m_properties.name);
-		}
-	}
+    void PhysicsSystem::FixedUpdate(float fixedDeltaTime) {
+        // Fixed timestep physics updates
+        ResolveCollisions();
+        ApplyConstraints();
+    }
 
-	void System::RemoveEntity(EntityID entityID)
-	{
-		std::lock_guard<std::mutex> lock(m_entityMutex);
+    void PhysicsSystem::OnInit() {
+        VOXELCRAFT_LOG_INFO("PhysicsSystem initialized with gravity: ({}, {}, {})",
+                           m_Gravity.x, m_Gravity.y, m_Gravity.z);
+    }
 
-		auto it = m_trackedEntities.find(entityID);
-		if (it != m_trackedEntities.end()) {
-			m_trackedEntities.erase(it);
-			VOXEL_LOG_DEBUG("Entity {} removed from system {}", entityID, m_properties.name);
-		}
-	}
+    void PhysicsSystem::IntegrateVelocities() {
+        // Implementation for velocity integration
+        // Apply forces, update velocities and positions
+    }
 
-	bool System::HasEntity(EntityID entityID) const
-	{
-		std::lock_guard<std::mutex> lock(m_entityMutex);
-		return m_trackedEntities.find(entityID) != m_trackedEntities.end();
-	}
+    void PhysicsSystem::ResolveCollisions() {
+        // Implementation for collision resolution
+        // Detect and resolve collisions between entities
+    }
 
-	void System::ProcessEntity(EntityID entityID, float deltaTime)
-	{
-		// Default implementation - should be overridden by specific systems
-		VOXEL_LOG_DEBUG("System {} processing entity {} (default implementation)",
-			m_properties.name, entityID);
-	}
+    void PhysicsSystem::ApplyConstraints() {
+        // Implementation for applying physics constraints
+        // Joints, springs, etc.
+    }
 
-	void System::ProcessAllEntities(float deltaTime)
-	{
-		std::lock_guard<std::mutex> lock(m_entityMutex);
+    // Implementación de RenderSystem
+    RenderSystem::RenderSystem() {
+        m_Name = "RenderSystem";
+    }
 
-		for (EntityID entityID : m_trackedEntities) {
-			ProcessEntity(entityID, deltaTime);
-		}
-	}
+    void RenderSystem::Update(float deltaTime) {
+        CollectVisibleEntities();
+        SortByRenderOrder();
+    }
 
-	void System::ResetStatistics()
-	{
-		m_statistics.totalUpdates = 0;
-		m_statistics.totalEntitiesProcessed = 0;
-		m_statistics.averageUpdateTime = 0.0f;
-		m_statistics.maxUpdateTime = 0.0f;
-		m_statistics.minUpdateTime = 0.0f;
-		m_statistics.totalUpdateTime = 0.0f;
-		m_statistics.memoryUsage = 0;
-		m_statistics.peakMemoryUsage = 0;
-	}
+    void RenderSystem::LateUpdate(float deltaTime) {
+        SubmitToRenderer();
+        HandleLevelOfDetail();
+    }
 
-	bool System::HasDependency(const std::string& dependency) const
-	{
-		return std::find(m_properties.dependencies.begin(),
-			m_properties.dependencies.end(), dependency) != m_properties.dependencies.end();
-	}
+    void RenderSystem::OnInit() {
+        VOXELCRAFT_LOG_INFO("RenderSystem initialized with render distance: {} and frustum culling: {}",
+                           m_RenderDistance, m_FrustumCulling ? "enabled" : "disabled");
+    }
 
-	bool System::HasConflict(const std::string& conflict) const
-	{
-		return std::find(m_properties.conflicts.begin(),
-			m_properties.conflicts.end(), conflict) != m_properties.conflicts.end();
-	}
+    void RenderSystem::CollectVisibleEntities() {
+        // Implementation for collecting visible entities
+        // Frustum culling, occlusion culling, etc.
+    }
 
-	size_t System::GetMemoryUsage() const
-	{
-		size_t totalUsage = sizeof(System);
-		totalUsage += m_properties.name.capacity();
-		totalUsage += m_properties.description.capacity();
+    void RenderSystem::SortByRenderOrder() {
+        // Implementation for sorting entities by render order
+        // Transparency, depth, material, etc.
+    }
 
-		for (const auto& dep : m_properties.dependencies) {
-			totalUsage += dep.capacity();
-		}
+    void RenderSystem::SubmitToRenderer() {
+        // Implementation for submitting entities to the renderer
+        // Batch rendering, instancing, etc.
+    }
 
-		for (const auto& conflict : m_properties.conflicts) {
-			totalUsage += conflict.capacity();
-		}
+    void RenderSystem::HandleLevelOfDetail() {
+        // Implementation for level of detail management
+        // Distance-based LOD switching
+    }
 
-		// Add tracked entities size
-		std::lock_guard<std::mutex> lock(m_entityMutex);
-		totalUsage += m_trackedEntities.size() * sizeof(EntityID);
+    // Implementación de AISystem
+    AISystem::AISystem() {
+        m_Name = "AISystem";
+    }
 
-		return totalUsage;
-	}
+    void AISystem::Update(float deltaTime) {
+        m_AccumulatedTime += deltaTime;
 
-	SystemID System::RegisterSystemType(const std::string& typeName)
-	{
-		std::lock_guard<std::mutex> lock(s_systemTypeMutex);
+        if (m_AccumulatedTime >= m_UpdateFrequency) {
+            UpdateAIEntities();
+            m_AccumulatedTime = 0.0f;
+        }
+    }
 
-		auto it = s_systemTypeMap.find(typeName);
-		if (it != s_systemTypeMap.end()) {
-			return it->second;
-		}
+    void AISystem::FixedUpdate(float fixedDeltaTime) {
+        ProcessBehaviors();
+        HandlePathfinding();
+    }
 
-		SystemID newID = static_cast<SystemID>(s_systemTypeMap.size()) + 1;
-		s_systemTypeMap[typeName] = newID;
+    void AISystem::OnInit() {
+        VOXELCRAFT_LOG_INFO("AISystem initialized with update frequency: {} and max AI entities: {}",
+                           m_UpdateFrequency, m_MaxAIEntities);
+    }
 
-		VOXEL_LOG_DEBUG("System type '{}' registered with ID: {}", typeName, newID);
-		return newID;
-	}
+    void AISystem::UpdateAIEntities() {
+        // Implementation for updating AI entities
+        // Behavior trees, state machines, etc.
+    }
 
-	SystemID System::GetSystemTypeID(const std::string& typeName)
-	{
-		std::lock_guard<std::mutex> lock(s_systemTypeMutex);
+    void AISystem::ProcessBehaviors() {
+        // Implementation for processing AI behaviors
+        // Execute behavior tree nodes
+    }
 
-		auto it = s_systemTypeMap.find(typeName);
-		return (it != s_systemTypeMap.end()) ? it->second : INVALID_SYSTEM_ID;
-	}
+    void AISystem::HandlePathfinding() {
+        // Implementation for pathfinding
+        // A* pathfinding, navigation meshes, etc.
+    }
 
-} // namespace VoxelCraft
+    void AISystem::ManageBehaviorTrees() {
+        // Implementation for managing behavior trees
+        // Tree construction, execution, debugging
+    }
+
+    // Implementación de AudioSystem
+    AudioSystem::AudioSystem() {
+        m_Name = "AudioSystem";
+    }
+
+    void AudioSystem::Update(float deltaTime) {
+        Update3DAudio();
+        ManageAudioSources();
+    }
+
+    void AudioSystem::LateUpdate(float deltaTime) {
+        HandleSpatialAudio();
+        ProcessAudioEvents();
+    }
+
+    void AudioSystem::OnInit() {
+        VOXELCRAFT_LOG_INFO("AudioSystem initialized with max audio sources: {}",
+                           m_MaxAudioSources);
+    }
+
+    void AudioSystem::Update3DAudio() {
+        // Implementation for updating 3D audio
+        // Update source positions, calculate attenuation, etc.
+    }
+
+    void AudioSystem::ManageAudioSources() {
+        // Implementation for managing audio sources
+        // Source pooling, priority management, etc.
+    }
+
+    void AudioSystem::HandleSpatialAudio() {
+        // Implementation for spatial audio processing
+        // HRTF, ambisonics, etc.
+    }
+
+    void AudioSystem::ProcessAudioEvents() {
+        // Implementation for processing audio events
+        // Play sounds, adjust volumes, etc.
+    }
+
+    // Implementación de ParticleSystem
+    ParticleSystem::ParticleSystem() {
+        m_Name = "ParticleSystem";
+    }
+
+    void ParticleSystem::Update(float deltaTime) {
+        UpdateParticles();
+        EmitNewParticles();
+    }
+
+    void ParticleSystem::FixedUpdate(float fixedDeltaTime) {
+        SimulatePhysics();
+        HandleCollisions();
+    }
+
+    void ParticleSystem::OnInit() {
+        VOXELCRAFT_LOG_INFO("ParticleSystem initialized with max particles: {} and budget: {}",
+                           m_MaxParticles, m_ParticleBudget);
+    }
+
+    void ParticleSystem::UpdateParticles() {
+        // Implementation for updating particles
+        // Update positions, velocities, lifetimes, etc.
+    }
+
+    void ParticleSystem::EmitNewParticles() {
+        // Implementation for emitting new particles
+        // Handle particle emitters
+    }
+
+    void ParticleSystem::SimulatePhysics() {
+        // Implementation for particle physics simulation
+        // Gravity, wind, collisions, etc.
+    }
+
+    void ParticleSystem::HandleCollisions() {
+        // Implementation for particle collision detection
+        // With world geometry and other objects
+    }
+
+}

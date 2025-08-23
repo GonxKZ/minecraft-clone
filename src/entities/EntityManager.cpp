@@ -1,160 +1,276 @@
 #include "EntityManager.hpp"
+#include "Entity.hpp"
+#include "Component.hpp"
+#include "System.hpp"
 #include <algorithm>
-#include <regex>
-#include <chrono>
+#include <sstream>
+#include <iostream>
 
 namespace VoxelCraft {
 
-	EntityManager::EntityManager(const Config& config)
-		: m_config(config)
-		, m_componentManager(nullptr)
-		, m_systemManager(nullptr)
-		, m_processingActive(false)
-		, m_stats({0, 0, 0, 0, 0, 0, 0, 0.0f, 0, 0.0f, 0, 0})
-	{
-		m_lastCleanupTime = std::chrono::high_resolution_clock::now();
+    // Variable estática para generar IDs únicos de entidades
+    std::atomic<Entity::EntityID> EntityManager::s_NextEntityID{1};
 
-		// Initialize entity pool
-		if (m_config.enableEntityPooling) {
-			m_entityPool.reserve(m_config.initialEntityPoolSize);
-			for (size_t i = 0; i < m_config.initialEntityPoolSize; ++i) {
-				m_availableIDs.push(i + 1);
-			}
-		}
+    EntityManager& EntityManager::GetInstance() {
+        static EntityManager instance;
+        return instance;
+    }
 
-		VOXEL_LOG_INFO("EntityManager initialized with pool size: {}", m_config.initialEntityPoolSize);
-	}
+    Entity* EntityManager::CreateEntity(const std::string& name) {
+        std::unique_lock lock(m_EntityMutex);
 
-	EntityManager::~EntityManager()
-	{
-		Shutdown();
-	}
+        EntityID id = GenerateEntityID();
+        auto entity = std::make_unique<Entity>(id, name, this);
+        Entity* rawPtr = entity.get();
 
-	bool EntityManager::Initialize(ComponentManager* componentManager, SystemManager* systemManager)
-	{
-		m_componentManager = componentManager;
-		m_systemManager = systemManager;
+        m_Entities[id] = std::move(entity);
+        AddEntityToActive(rawPtr);
 
-		// Start processing threads
-		if (m_config.enableParallelProcessing) {
-			m_processingActive.store(true);
-			for (size_t i = 0; i < m_config.maxProcessingThreads; ++i) {
-				m_processingThreads.emplace_back(&EntityManager::ProcessingThreadFunction, this);
-			}
-			VOXEL_LOG_INFO("Started {} processing threads", m_config.maxProcessingThreads);
-		}
+        m_Stats.totalEntitiesCreated++;
 
-		VOXEL_LOG_INFO("EntityManager initialized successfully");
-		return true;
-	}
+        return rawPtr;
+    }
 
-	void EntityManager::Shutdown()
-	{
-		VOXEL_LOG_INFO("Shutting down EntityManager...");
+    Entity* EntityManager::GetEntity(EntityID id) const {
+        std::shared_lock lock(m_EntityMutex);
 
-		// Stop processing threads
-		if (m_processingActive.load()) {
-			m_processingActive.store(false);
-			m_processingCV.notify_all();
+        auto it = m_Entities.find(id);
+        return (it != m_Entities.end()) ? it->second.get() : nullptr;
+    }
 
-			for (auto& thread : m_processingThreads) {
-				if (thread.joinable()) {
-					thread.join();
-				}
-			}
-			m_processingThreads.clear();
-			VOXEL_LOG_INFO("Processing threads stopped");
-		}
+    bool EntityManager::DestroyEntity(EntityID id) {
+        std::unique_lock lock(m_EntityMutex);
 
-		// Clear all entities
-		ClearAllEntities();
+        auto it = m_Entities.find(id);
+        if (it == m_Entities.end()) {
+            return false;
+        }
 
-		// Clear entity pool
-		{
-			std::lock_guard<std::mutex> lock(m_poolMutex);
-			m_entityPool.clear();
-			while (!m_availableIDs.empty()) {
-				m_availableIDs.pop();
-			}
-		}
+        Entity* entity = it->second.get();
+        entity->Destroy();
+        AddEntityToPendingDestroy(entity);
 
-		// Clear indices
-		m_tagIndex.clear();
-		m_typeIndex.clear();
-		m_stateIndex.clear();
-		m_signatureIndex.clear();
+        m_Stats.totalEntitiesDestroyed++;
+        return true;
+    }
 
-		VOXEL_LOG_INFO("EntityManager shutdown complete");
-	}
+    void EntityManager::DestroyAllEntities() {
+        std::unique_lock lock(m_EntityMutex);
 
-	void EntityManager::Update(float deltaTime)
-	{
-		auto startTime = std::chrono::high_resolution_clock::now();
+        for (auto& pair : m_Entities) {
+            pair.second->Destroy();
+            AddEntityToPendingDestroy(pair.second.get());
+        }
 
-		// Process pending operations
-		ProcessPendingCreations();
-		ProcessPendingDestructions();
+        m_Stats.totalEntitiesDestroyed += m_Entities.size();
+    }
 
-		// Update entities
-		std::vector<EntityID> entitiesToUpdate;
-		{
-			std::lock_guard<std::mutex> lock(m_entityMutex);
-			for (const auto& pair : m_entities) {
-				if (pair.second && pair.second->IsActive()) {
-					entitiesToUpdate.push_back(pair.first);
-				}
-			}
-		}
+    size_t EntityManager::GetEntityCount() const {
+        std::shared_lock lock(m_EntityMutex);
+        return m_Entities.size();
+    }
 
-		// Update entities with limit per frame
-		size_t updateCount = 0;
-		for (EntityID entityID : entitiesToUpdate) {
-			if (updateCount >= m_config.maxEntitiesPerFrame) {
-				break;
-			}
+    void EntityManager::Update(float deltaTime) {
+        // Procesar destrucciones pendientes
+        ProcessPendingDestroys();
 
-			auto entity = GetEntity(entityID);
-			if (entity) {
-				entity->Update(deltaTime);
-				updateCount++;
-			}
-		}
+        // Actualizar entidades activas
+        {
+            std::shared_lock lock(m_EntityMutex);
+            for (Entity* entity : m_ActiveEntities) {
+                if (entity && entity->IsActive()) {
+                    entity->Update(deltaTime);
+                }
+            }
+        }
 
-		// Perform periodic cleanup
-		auto currentTime = std::chrono::high_resolution_clock::now();
-		float timeSinceCleanup = std::chrono::duration_cast<std::chrono::seconds>(
-			currentTime - m_lastCleanupTime).count();
+        // Actualizar sistemas
+        UpdateSystems(deltaTime);
+    }
 
-		if (timeSinceCleanup >= m_config.cleanupInterval) {
-			PerformCleanup();
-			m_lastCleanupTime = currentTime;
-		}
+    void EntityManager::FixedUpdate(float fixedDeltaTime) {
+        // Actualizar entidades activas
+        {
+            std::shared_lock lock(m_EntityMutex);
+            for (Entity* entity : m_ActiveEntities) {
+                if (entity && entity->IsActive()) {
+                    entity->FixedUpdate(fixedDeltaTime);
+                }
+            }
+        }
 
-		// Update statistics
-		auto endTime = std::chrono::high_resolution_clock::now();
-		float updateTime = std::chrono::duration_cast<std::chrono::microseconds>(
-			endTime - startTime).count() / 1000.0f;
+        // Actualizar sistemas
+        FixedUpdateSystems(fixedDeltaTime);
+    }
 
-		UpdateStatistics();
-		m_stats.averageUpdateTime = (m_stats.averageUpdateTime * m_stats.totalEntityUpdates +
-			updateTime) / (m_stats.totalEntityUpdates + 1);
-		m_stats.totalEntityUpdates++;
-	}
+    void EntityManager::LateUpdate(float deltaTime) {
+        // Actualizar entidades activas
+        {
+            std::shared_lock lock(m_EntityMutex);
+            for (Entity* entity : m_ActiveEntities) {
+                if (entity && entity->IsActive()) {
+                    entity->LateUpdate(deltaTime);
+                }
+            }
+        }
 
-	EntityID EntityManager::GenerateEntityID()
-	{
-		if (m_config.enableEntityPooling && !m_availableIDs.empty()) {
-			std::lock_guard<std::mutex> lock(m_poolMutex);
-			if (!m_availableIDs.empty()) {
-				EntityID id = m_availableIDs.front();
-				m_availableIDs.pop();
-				return id;
-			}
-		}
+        // Actualizar sistemas
+        LateUpdateSystems(deltaTime);
+    }
 
-		// Generate new ID
-		static EntityID nextID = 1;
-		return nextID++;
-	}
+    void EntityManager::ProcessPendingDestroys() {
+        std::unique_lock lock(m_EntityMutex);
 
-} // namespace VoxelCraft
+        for (Entity* entity : m_PendingDestroyEntities) {
+            if (entity) {
+                RemoveEntityFromActive(entity);
+                RemoveEntityFromInactive(entity);
+                m_Entities.erase(entity->GetID());
+            }
+        }
+
+        m_PendingDestroyEntities.clear();
+    }
+
+    void EntityManager::CleanupDestroyedEntities() {
+        std::unique_lock lock(m_EntityMutex);
+
+        // Limpiar entidades marcadas como destruidas
+        for (auto it = m_Entities.begin(); it != m_Entities.end();) {
+            if (it->second->IsDestroyed()) {
+                it = m_Entities.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+
+    std::string EntityManager::ToString() const {
+        std::shared_lock lock(m_EntityMutex);
+        std::shared_lock systemLock(m_SystemMutex);
+
+        std::stringstream ss;
+        ss << "EntityManager[Entities=" << m_Entities.size()
+           << ", Active=" << m_ActiveEntities.size()
+           << ", Inactive=" << m_InactiveEntities.size()
+           << ", PendingDestroy=" << m_PendingDestroyEntities.size()
+           << ", Systems=" << m_Systems.size() << "]";
+
+        return ss.str();
+    }
+
+    void EntityManager::LogStatistics() const {
+        auto now = std::chrono::steady_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::seconds>(
+            now - m_Stats.startTime).count();
+
+        std::cout << "=== EntityManager Statistics ===" << std::endl;
+        std::cout << "Total Entities Created: " << m_Stats.totalEntitiesCreated << std::endl;
+        std::cout << "Total Entities Destroyed: " << m_Stats.totalEntitiesDestroyed << std::endl;
+        std::cout << "Total Components Created: " << m_Stats.totalComponentsCreated << std::endl;
+        std::cout << "Total Components Destroyed: " << m_Stats.totalComponentsDestroyed << std::endl;
+        std::cout << "Current Entity Count: " << m_Entities.size() << std::endl;
+        std::cout << "Active Entities: " << m_ActiveEntities.size() << std::endl;
+        std::cout << "Systems Count: " << m_Systems.size() << std::endl;
+        std::cout << "Uptime: " << duration << " seconds" << std::endl;
+        std::cout << "===============================" << std::endl;
+    }
+
+    // Métodos privados
+    Entity::EntityID EntityManager::GenerateEntityID() {
+        return s_NextEntityID.fetch_add(1, std::memory_order_relaxed);
+    }
+
+    void EntityManager::AddEntityToActive(Entity* entity) {
+        if (std::find(m_ActiveEntities.begin(), m_ActiveEntities.end(), entity) == m_ActiveEntities.end()) {
+            m_ActiveEntities.push_back(entity);
+        }
+    }
+
+    void EntityManager::RemoveEntityFromActive(Entity* entity) {
+        auto it = std::remove(m_ActiveEntities.begin(), m_ActiveEntities.end(), entity);
+        if (it != m_ActiveEntities.end()) {
+            m_ActiveEntities.erase(it, m_ActiveEntities.end());
+        }
+    }
+
+    void EntityManager::AddEntityToInactive(Entity* entity) {
+        if (std::find(m_InactiveEntities.begin(), m_InactiveEntities.end(), entity) == m_InactiveEntities.end()) {
+            m_InactiveEntities.push_back(entity);
+        }
+    }
+
+    void EntityManager::RemoveEntityFromInactive(Entity* entity) {
+        auto it = std::remove(m_InactiveEntities.begin(), m_InactiveEntities.end(), entity);
+        if (it != m_InactiveEntities.end()) {
+            m_InactiveEntities.erase(it, m_InactiveEntities.end());
+        }
+    }
+
+    void EntityManager::AddEntityToPendingDestroy(Entity* entity) {
+        if (std::find(m_PendingDestroyEntities.begin(), m_PendingDestroyEntities.end(), entity) == m_PendingDestroyEntities.end()) {
+            m_PendingDestroyEntities.push_back(entity);
+        }
+    }
+
+    void EntityManager::RemoveEntityFromPendingDestroy(Entity* entity) {
+        auto it = std::remove(m_PendingDestroyEntities.begin(), m_PendingDestroyEntities.end(), entity);
+        if (it != m_PendingDestroyEntities.end()) {
+            m_PendingDestroyEntities.erase(it, m_PendingDestroyEntities.end());
+        }
+    }
+
+    void EntityManager::RegisterComponent(Component* component) {
+        std::unique_lock lock(m_ComponentMutex);
+
+        auto typeIndex = component->GetType();
+        m_ComponentsByType[typeIndex].push_back(component);
+
+        m_Stats.totalComponentsCreated++;
+    }
+
+    void EntityManager::UnregisterComponent(Component* component) {
+        std::unique_lock lock(m_ComponentMutex);
+
+        auto typeIndex = component->GetType();
+        auto& components = m_ComponentsByType[typeIndex];
+
+        auto it = std::remove(components.begin(), components.end(), component);
+        if (it != components.end()) {
+            components.erase(it, components.end());
+        }
+
+        m_Stats.totalComponentsDestroyed++;
+    }
+
+    void EntityManager::UpdateSystems(float deltaTime) {
+        std::shared_lock lock(m_SystemMutex);
+
+        for (const auto& system : m_Systems) {
+            if (system) {
+                system->Update(deltaTime);
+            }
+        }
+    }
+
+    void EntityManager::FixedUpdateSystems(float fixedDeltaTime) {
+        std::shared_lock lock(m_SystemMutex);
+
+        for (const auto& system : m_Systems) {
+            if (system) {
+                system->FixedUpdate(fixedDeltaTime);
+            }
+        }
+    }
+
+    void EntityManager::LateUpdateSystems(float deltaTime) {
+        std::shared_lock lock(m_SystemMutex);
+
+        for (const auto& system : m_Systems) {
+            if (system) {
+                system->LateUpdate(deltaTime);
+            }
+        }
+    }
+
+}
