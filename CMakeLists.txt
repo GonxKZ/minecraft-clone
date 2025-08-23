@@ -136,9 +136,24 @@ set(VOXELCRAFT_CORE_SOURCES
     src/world/Biome.cpp
     src/world/LightingEngine.cpp
     src/blocks/Block.cpp
+    src/blocks/BlockRegistry.cpp
+    src/blocks/BlockSystem.cpp
+    src/blocks/TextureAtlas.hpp
+    src/blocks/BlockMeshGenerator.hpp
+    src/blocks/BlockBehavior.hpp
     src/interaction/BlockInteraction.cpp
     src/ui/UIManager.cpp
+    src/ui/UISystem.hpp
+    src/ui/UISystem.cpp
+    src/ui/UIWidgets.hpp
+    src/ui/UIInventory.hpp
+    src/ui/UIMenus.hpp
+    src/ui/UIHUD.hpp
     src/audio/AudioManager.cpp
+    src/audio/SoundGenerator.hpp
+    src/audio/SoundGenerator.cpp
+    src/audio/SpatialAudioSystem.hpp
+    src/audio/AudioEffectProcessor.hpp
     src/entities/Entity.cpp
     src/entities/Component.cpp
     src/entities/EntityManager.cpp

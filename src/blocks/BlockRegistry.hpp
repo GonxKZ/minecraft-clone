@@ -27,6 +27,50 @@
 
 namespace VoxelCraft {
 
+    // Basic type definitions
+    using BlockID = uint32_t;
+    using BlockMetadata = uint16_t;
+
+    // Enum definitions for block properties
+    enum class BlockMaterial {
+        AIR,
+        SOLID,
+        LIQUID,
+        PLANT,
+        WOOD,
+        STONE,
+        METAL,
+        CLOTH,
+        GLASS,
+        SAND,
+        GRAVEL,
+        LEAVES,
+        SPONGE,
+        BEDROCK
+    };
+
+    enum class BlockRenderType {
+        SOLID,
+        TRANSPARENT,
+        TRANSLUCENT,
+        INVISIBLE
+    };
+
+    enum class BlockSoundType {
+        STONE,
+        WOOD,
+        GRAVEL,
+        GRASS,
+        METAL,
+        GLASS,
+        CLOTH,
+        SAND,
+        SNOW,
+        LADDER,
+        ANVIL,
+        SLIME
+    };
+
     /**
      * @struct BlockRegistrationInfo
      * @brief Information about a block registration

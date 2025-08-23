@@ -20,6 +20,11 @@ namespace VoxelCraft {
     class AudioListener;
     class SoundBank;
     class AudioEffect;
+    class SpatialAudioSystem;
+    class AudioEffectProcessor;
+    struct SpatialAudioSource;
+    struct SpatialAudioListener;
+    struct SpatialAudioEnvironment;
 
     /**
      * @enum AudioFormat
@@ -214,6 +219,24 @@ namespace VoxelCraft {
         bool GenerateMusic(const std::string& name, const std::string& style, float duration = 60.0f);
         bool GenerateAmbient(const std::string& name, const std::string& biome, float duration = 30.0f);
 
+        // Audio espacial 3D
+        std::shared_ptr<AudioSource> PlaySound3D(const AudioSourceConfig& config);
+        std::shared_ptr<AudioSource> PlaySound3D(const std::string& soundName,
+                                                const glm::vec3& position,
+                                                float volume = 1.0f);
+        void SetListenerPosition(const glm::vec3& position);
+        void SetListenerOrientation(const glm::vec3& forward, const glm::vec3& up);
+        void SetListenerVelocity(const glm::vec3& velocity);
+        void SetEnvironment(const std::string& environmentType);
+
+        // Efectos de audio
+        std::shared_ptr<AudioEffect> CreateEffect(const std::string& effectType,
+                                                const std::string& name);
+        bool ApplyEffectToSource(std::shared_ptr<AudioSource> source,
+                               std::shared_ptr<AudioEffect> effect);
+        bool RemoveEffectFromSource(std::shared_ptr<AudioSource> source,
+                                  const std::string& effectName);
+
         // Efectos de audio
         std::shared_ptr<AudioEffect> CreateReverbEffect(float decayTime = 1.5f, float dampening = 0.5f);
         std::shared_ptr<AudioEffect> CreateEchoEffect(float delay = 0.3f, float decay = 0.5f);
@@ -247,6 +270,8 @@ namespace VoxelCraft {
         std::unique_ptr<SoundGenerator> m_soundGenerator;
         std::unique_ptr<AudioListener> m_listener;
         std::unique_ptr<SoundBank> m_soundBank;
+        std::unique_ptr<SpatialAudioSystem> m_spatialAudioSystem;
+        std::unique_ptr<AudioEffectProcessor> m_effectProcessor;
 
         // Configuración y estado
         AudioConfig m_config;

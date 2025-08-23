@@ -19,6 +19,10 @@
 
 namespace VoxelCraft {
 
+    // Basic type definitions
+    using BlockID = uint32_t;
+    using BlockMetadata = uint16_t;
+
     // Forward declarations
     class BlockState;
     class BlockBehavior;
